@@ -1,0 +1,12 @@
+{
+  "display_name": "VN Studio · 미연시 팝업",
+  "loading_order": 30,
+  "requires": [],
+  "optional": [],
+  "js": "index.js",
+  "css": "style.css",
+  "author": "you",
+  "version": "1.3.0",
+  "minimum_client_version": "1.12.0",
+  "homePage": ""
+}
