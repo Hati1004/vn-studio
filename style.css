@@ -393,3 +393,15 @@ body.vn-open #vn-fab { display: none !important; }
 .vn-chiprow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0; }
 .vn-subchip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 10px; font-size: .82rem; background: rgba(185,166,255,.15); border: 1px solid rgba(185,166,255,.5); border-radius: 999px; } .vn-subchip button { width: 20px; height: 20px; font-size: .7rem; color: var(--mist); background: none; border: 0; }
 .vn-mbody label.vn-ck.sm { margin: 4px 0 0; font-size: .88rem; } .vn-ck.sm input[type=checkbox] { width: 34px; height: 20px; } .vn-ck.sm input[type=checkbox]::after { width: 14px; height: 14px; } .vn-ck.sm input[type=checkbox]:checked::after { transform: translateX(14px); }
+
+/* ===== 1.6: 선택지가 잘리지 않게 (글 영역이 줄어들고 선택지는 항상 전부 보임) ===== */
+.vn-text { flex: 0 1 auto; min-height: 72px; }
+.vn-end, #vn-root[data-size="sm"] .vn-end, #vn-root[data-size="xs"] .vn-end { flex: none; max-height: none; overflow: visible; }
+.vn-hint.vn-err { color: #ffb4bd; max-width: 100%; white-space: normal; word-break: break-word; }
+
+/* 채팅 원본 서식 패널 */
+.vn-rich-btn { display: none !important; } #vn-root.has-rich .vn-rich-btn { display: inline-flex !important; border-color: rgba(143,211,255,.6); }
+.vn-htmlpanel { position: absolute; top: 70px; right: 14px; z-index: 13; width: min(420px, 62vw); height: min(46vh, 420px); min-width: 220px; min-height: 120px; display: flex; flex-direction: column; resize: both; overflow: hidden; background: rgba(16,13,24,.94); border: 1px solid rgba(143,211,255,.45); border-radius: 12px; box-shadow: 0 12px 40px rgba(0,0,0,.6); backdrop-filter: blur(8px); }
+.vn-hp-head { display: flex; align-items: center; gap: 6px; padding: 5px 8px; font-size: .82rem; color: #bfe6ff; background: rgba(143,211,255,.12); cursor: move; touch-action: none; user-select: none; }
+.vn-hp-head button { width: 26px; height: 26px; font-size: .75rem; color: var(--moon); background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.2); border-radius: 6px; }
+#vn-hp-frame { flex: 1; width: 100%; border: 0; background: transparent; }

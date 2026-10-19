@@ -68,7 +68,7 @@
     outLang: 'ui', translateInput: false, keepLen: true, keepLenText: '',
     choiceCount: 4, choiceLen: 70, choiceP1: '', choiceP2: '', choiceP3: '', choiceP4: '', choiceExtra: '',
     useSSLook: true, lookModel: 'gemini-2.5-flash', lookVision: false, stylePreset: 'ss', stylePresets: [], negative: '',
-    analyzePlaces: false, bgBlank: false, bgBlankColor: '#ffffff', bgBlankAuto: true, textH: 0, lpWidth: 0, fabPos: null, fabShow: true, lang: 'ko', devMode: false, hideBlocks: true, hideRegex: '', cutout: true, cutTol: 34, emosDefault: ['neutral', 'joy', 'sadness', 'anger', 'surprise', 'embarrassment'], enabled: true, fab: true, autoOpen: false, inject: true, choicesMode: 'both', eventEvery: 4,
+    analyzePlaces: false, bgBlank: false, bgBlankColor: '#ffffff', bgBlankAuto: true, textH: 0, lpWidth: 0, fabPos: null, htmlPos: null, fabShow: true, llmTimeout: 150, deleteFiles: true, hideInChat: false, htmlAuto: false, lang: 'ko', devMode: false, hideBlocks: true, hideRegex: '', cutout: true, cutTol: 34, emosDefault: ['neutral', 'joy', 'sadness', 'anger', 'surprise', 'embarrassment'], enabled: true, fab: true, autoOpen: false, inject: true, choicesMode: 'both', eventEvery: 4,
     useST: true, classify: true, useAvatars: true, autoSprite: true, spriteCap: 6, useSS: true, autoAnalyze: true, hideTags: '',
     autoBg: true, autoEventImg: true, autoEventVid: false, videoConfirm: true,
     style: 'visual novel background art, soft anime painterly style, clean lines, rich atmosphere, high detail',
@@ -274,7 +274,7 @@
   /* ================= 응답 파싱 ================= */
   const RE_BLOCK = /\[VN\]([\s\S]*?)\[\/VN\]/i;
   const RE_BLOCK_ALL = /\[VN\][\s\S]*?(\[\/VN\]|$)/gi;
-  const COT_TAGS = ['think', 'thinking', 'thought', 'thoughts', 'reasoning', 'reason', 'cot', 'analysis', 'scratchpad', 'reflection', 'planning', 'details', 'inner_thoughts', 'thinking_process', 'thinkingprocess', 'status', 'statusblock', 'status_block', 'statuswindow', 'status_window', 'infoblock', 'info_block', 'uiblock', 'hud', 'panel', 'character_status', '상태창', '상태', '스탯', '정보창', 'style', 'script'];
+  const COT_TAGS = ['think', 'thinking', 'thought', 'thoughts', 'reasoning', 'reason', 'cot', 'analysis', 'scratchpad', 'reflection', 'planning', 'details', 'inner_thoughts', 'thinking_process', 'thinkingprocess', 'status', 'statusblock', 'status_block', 'statuswindow', 'status_window', 'infoblock', 'info_block', 'uiblock', 'hud', 'panel', 'character_status', '상태창', '상태', '스탯', '정보창', 'style', 'script', 'facts', 'fact', 'infobox', 'charinfo', 'memo', 'tracker'];
   /* 프리셋의 CoT/생각 블록은 연출에서 빼고 본문만 남긴다 */
   function stripCot(text) {
     let t = String(text || '');
@@ -385,7 +385,7 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
   /* ================= 호출 기록 (어디서 몇 번 나가는지 보이게) ================= */
   const usageLog = [];
   const estTok = (s) => { s = String(s || ''); let h = 0; for (const c of s) if (c >= '가' && c <= '힣') h++; return Math.ceil(h * 1.2 + (s.length - h) / 4); };
-  function logUsage(kind, label, status, tok = null) {
+  function logUsage(kind, label, status, tok = null, err = '') {
     const u = (S().usage ||= { text: 0, image: 0, video: 0, r429: 0 });
     if (status === 'ok') u[kind] = (u[kind] || 0) + 1;
     if (status === '429') u.r429 = (u.r429 || 0) + 1;
@@ -393,7 +393,7 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
       if (kind === 'text') { u.tin = (u.tin || 0) + (tok.in || 0); u.tout = (u.tout || 0) + (tok.out || 0); }
       else { u.iin = (u.iin || 0) + (tok.in || 0); u.iout = (u.iout || 0) + (tok.out || 0); }
     }
-    usageLog.unshift({ t: Date.now(), kind, label, status, tok }); if (usageLog.length > 60) usageLog.pop();
+    usageLog.unshift({ t: Date.now(), kind, label, status, tok, err: String(err || '').slice(0, 200) }); if (usageLog.length > 60) usageLog.pop();
     saveSettings(); try { ui.usagePill?.(); } catch { /* UI 아직 없음 */ }
   }
 
@@ -402,8 +402,9 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
   async function llm(prompt, maxTok = 2048, label = '텍스트') {
     const s = S(), c = ctx();
     const prof = s.llmProfile ? profileList().find((p) => p.id === s.llmProfile) : null;
-    let out = '';
-    try {
+    const limit = s.fastLlm ? 0.3 : Math.max(20, +s.llmTimeout || 150);   // fastLlm은 테스트용 숨김 옵션
+    const run = async () => {
+      let out = '';
       if (prof && c.ConnectionManagerRequestService?.sendRequest) {
         try {
           const r = await c.ConnectionManagerRequestService.sendRequest(prof.id, [{ role: 'user', content: prompt }], maxTok, { stream: false, extractData: true }, {});
@@ -415,7 +416,13 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
       }
       if (!String(out).trim()) out = await c.generateQuietPrompt(prompt, false, false);
       if (typeof out !== 'string' || !out.trim()) throw new Error('모델 응답이 비어 있어요');
-    } catch (e) { logUsage('text', label, 'fail'); throw e; }
+      return out;
+    };
+    let timer, out;
+    try {
+      out = await Promise.race([run(), new Promise((_, no) => { timer = setTimeout(() => no(new Error(`모델이 ${limit}초 안에 답하지 않았어요. 연결 프로필·모델 상태를 확인하고 다시 시도해 주세요`)), limit * 1000); })]);
+    } catch (e) { logUsage('text', label, 'fail', null, e.message || e); throw e; }
+    finally { clearTimeout(timer); }
     logUsage('text', label, 'ok', { in: estTok(prompt), out: estTok(out), est: true });
     return out;
   }
@@ -463,7 +470,7 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
             for (let s = d; s > 0; s--) { ui.status?.(`요청이 몰려 ${s}초 뒤 다시 시도해요 (${label})`); await sleepMs(1000); }
             ui.status?.(''); continue;
           }
-          logUsage('image', label, 'fail'); throw e;
+          logUsage('image', label, 'fail', null, e.message || e); throw e;
         }
       }
     };
@@ -815,7 +822,7 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
     const prompt = `${notes.join(' ')}\nGenerate one image: a visual novel character sprite, waist-up portrait of "${ch.name}" (${look || 'as in the reference'}). Outfit: ${outfitText}. Expression and pose: ${EMO_DESC[emoKey] || emoKey}. Natural, expressive, candid body language and a slight three-quarter angle, NOT a stiff straight-on attention stance. Rendering style: ${style}. Match EXACTLY the rendering style, level of realism, lighting and color grading of the reference image (if the reference is photorealistic, make this photorealistic too, NOT anime or illustration). Background: plain flat solid pure white, no floor, no shadow, no gradient, no props behind. Single character, no text, no UI, no watermark.${ch._parent ? ` The reference card image may show several people: draw ONLY ${ch.name}.` : ''}`;
     let url = await geminiGenerate(prompt, refs, '3:4', 'vngen_', `표정 ${ch.name}·${outfit}·${emoKey}`);
     if (s.cutout) {
-      try { const c = await cutoutImage(url); if (c.url) url = c.url; else toastr.info(`배경 제거를 건너뛰었어요 (배경이 균일하지 않아요, 인식 ${(c.ratio * 100).toFixed(0)}%). 이미지는 원본으로 저장했어요.`); }
+      try { const c = await cutoutImage(url); if (c.url) { const orig = url; url = c.url; dropImage(orig); } else toastr.info(`배경 제거를 건너뛰었어요 (배경이 균일하지 않아요, 인식 ${(c.ratio * 100).toFixed(0)}%). 이미지는 원본으로 저장했어요.`); }
       catch (e) { console.warn('[VN] 배경 제거 실패', e); }
     }
     return url;
@@ -983,6 +990,7 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
       <button data-act="dos" title="공략집" aria-label="공략집"><i class="fa-solid fa-heart"></i></button>
       <button data-act="sched" title="일정·캘린더" aria-label="일정과 캘린더"><i class="fa-solid fa-calendar-days"></i></button>
       <button data-act="log" title="기록 (대화 읽기)" aria-label="기록"><i class="fa-solid fa-scroll"></i></button>
+      <button data-act="html" class="vn-rich-btn" title="채팅 원본 서식 보기 (HTML/CSS 효과)" aria-label="채팅 원본 서식"><i class="fa-solid fa-code"></i></button>
       <button data-act="hide" title="화면 숨기기 (H)" aria-label="UI 숨기기"><i class="fa-solid fa-eye-slash"></i></button>
       <button data-act="modal" title="메뉴" aria-label="메뉴"><i class="fa-solid fa-bars"></i></button>
       <button data-act="mode" title="채팅 연동 ↔ 일상 모드" aria-label="모드 전환"><i class="fa-solid fa-book-open"></i><span class="vn-tl">채팅</span></button>
@@ -1006,6 +1014,10 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
   </div>
   <div class="vn-event vn-off" id="vn-event"></div>
   <div class="vn-fade" id="vn-fade"><span></span></div>
+  <div class="vn-htmlpanel vn-off" id="vn-htmlpanel" role="dialog" aria-label="채팅 원본 서식">
+    <div class="vn-hp-head" id="vn-hp-head"><b>채팅 원본 서식</b><span class="grow"></span><button data-act="html-refresh" title="다시 불러오기" aria-label="다시 불러오기"><i class="fa-solid fa-rotate"></i></button><button data-act="html-close" title="닫기" aria-label="닫기"><i class="fa-solid fa-xmark"></i></button></div>
+    <iframe id="vn-hp-frame" sandbox="" referrerpolicy="no-referrer" title="채팅 원본 서식"></iframe>
+  </div>
   <aside class="vn-logpanel vn-off" id="vn-logpanel" aria-label="기록">
     <div class="vn-lp-resize" id="vn-lp-resize" title="끌어서 너비 조절 (더블클릭: 기본)" aria-label="기록 패널 너비 조절"></div>
     <header><div class="vn-lp-tabs"><button data-lp="log" class="on">연출 기록</button><button data-lp="chat">채팅 전체</button></div><span class="grow"></span><button data-act="logside" title="왼쪽/오른쪽 이동" aria-label="위치 이동"><i class="fa-solid fa-arrow-right-arrow-left"></i></button><button data-act="log" aria-label="닫기"><i class="fa-solid fa-xmark"></i></button></header>
@@ -1123,7 +1135,7 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
     clearEnd() {
       ui.q('#vn-box').classList.remove('end'); ui.q('#vn-choices').innerHTML = ''; ui.q('#vn-choices').classList.remove('on'); ui.q('#vn-endbtns').innerHTML = ''; ui.q('.vn-evmini-wrap')?.remove();
     },
-    open() { ui.build(); ui.root.classList.remove('vn-off'); st.open = true; document.body.classList.add('vn-open'); requestAnimationFrame(() => ui.fit?.()); setTimeout(() => ui.fit?.(), 150); },
+    open() { ui.build(); ui.root.classList.remove('vn-off'); st.open = true; document.body.classList.add('vn-open'); ui.fit?.(); requestAnimationFrame(() => ui.fit?.()); setTimeout(() => ui.fit?.(), 150); },
     close() { ui.root?.classList.add('vn-off'); st.open = false; document.body.classList.remove('vn-open'); finishText(true); },
   };
 
@@ -1290,7 +1302,7 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
       const t = ui.q('#vn-text'); t.insertAdjacentHTML('beforeend', `<p class="k-narr vn-wait"><span class="vn-dots"></span><span class="vn-wsec"></span> <button class="vn-pill ghost vn-wcancel" data-act="cancel-wait">취소</button></p>`);
       const dots = t.querySelector('.vn-wait .vn-dots'), sec = t.querySelector('.vn-wait .vn-wsec');
       dots.textContent = trMsg(msg); st.waitStart = Date.now();
-      const tick = () => { const s = Math.floor((Date.now() - st.waitStart) / 1000); sec.textContent = s >= 1 ? ` (${s}초)` : ''; if (s === 25) sec.textContent += ' · 모델 응답이 오래 걸리고 있어요. 멈춘 게 아니에요'; };
+      const tick = () => { const s = Math.floor((Date.now() - st.waitStart) / 1000); sec.textContent = s >= 1 ? L2(` (${s}초)`, ` (${s}s)`) : ''; if (s >= 25 && s < 60) sec.textContent += L2(' · 모델 응답이 오래 걸리고 있어요. 멈춘 게 아니에요', ' · The model is taking a while. It has not frozen.'); else if (s >= 60) sec.textContent += L2(` · 응답이 많이 늦어요. ${Math.max(20, +S().llmTimeout || 150)}초가 지나면 이유와 함께 알려 드려요. 기다리지 않으려면 취소를 눌러 주세요`, ` · The reply is very late. After ${Math.max(20, +S().llmTimeout || 150)} s you will see the reason. Press Cancel if you do not want to wait.`); };
       st.waitTimer = setInterval(tick, 1000); scrollText(true);
       box.classList.add('waiting');
     } else { box.classList.remove('waiting'); ui.root && $$('.vn-wait', ui.root).forEach((e) => e.remove()); }
@@ -1326,6 +1338,25 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
     b.scrollTop = b.scrollHeight;
   }
   function toggleLog() { const p = ui.q('#vn-logpanel'); p.classList.toggle('vn-off'); ui.root.classList.toggle('lp-on', !p.classList.contains('vn-off')); if (lpOpen()) renderLogPanel(); }
+
+  /* ================= 채팅 원본 서식 패널 (프리셋의 HTML/CSS 상태창·효과를 팝업 안에서 보기) =================
+     SillyTavern이 이미 그려 둔 메시지를 격리된 iframe에 넣어요. CSS 애니메이션·색·움직이는 이미지는 그대로 나오고,
+     스크립트는 보안을 위해 실행하지 않아요(JS로 움직이는 효과는 안 나와요). */
+  const hasRich = (mes) => /<style\b|style\s*=|<(div|table|details|section|marquee|font|center|svg|canvas|img|video|button)\b/i.test(String(mes || '').replace(RE_BLOCK_ALL, ''));
+  function richHtmlOf(turn) {
+    const el = turn?.id != null ? document.querySelector(`#chat .mes[mesid="${turn.id}"] .mes_text`) : null;
+    let h = el ? el.innerHTML : null;
+    if (h == null) { const m = (ctx().chat || [])[turn?.id]; h = m ? esc(String(m.mes)).replace(/\n/g, '<br>') : ''; }
+    return String(h).replace(RE_BLOCK_ALL, '');
+  }
+  function openHtmlPanel(turn) {
+    const p = ui.q('#vn-htmlpanel'), f = ui.q('#vn-hp-frame'); if (!p || !f) return;
+    const pos = S().htmlPos; if (pos) { p.style.left = pos.x + 'px'; p.style.top = pos.y + 'px'; p.style.right = 'auto'; }
+    f.srcdoc = `<!doctype html><meta charset="utf-8"><style>:root{color-scheme:dark}html,body{margin:0}body{padding:10px 12px;background:transparent;color:#f4eefc;font:15px/1.7 'Gowun Batang','Noto Serif KR',serif}img,video,svg{max-width:100%}a{color:#ffc58f}</style>${richHtmlOf(turn)}`;
+    p.classList.remove('vn-off');
+  }
+  const closeHtmlPanel = () => ui.q('#vn-htmlpanel')?.classList.add('vn-off');
+  const htmlPanelOpen = () => !ui.q('#vn-htmlpanel')?.classList.contains('vn-off');
 
   /* ================= 이벤트 씬 오버레이 ================= */
   function renderEvent(entry) {
@@ -1412,6 +1443,8 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
         <div class="vn-npced-f">
           <div class="vn-row tight"><input type="text" data-act="npc-field" data-f="name" value="${esc(sel.name)}" placeholder="이름" style="flex:1 1 110px"><input type="text" data-act="npc-field" data-f="role" value="${esc(sel.role || '')}" placeholder="역할 / 관계" style="flex:1 1 90px"></div>
           <textarea rows="2" data-act="npc-field" data-f="desc" placeholder="설명 (외형·성격, AI 이미지 생성에도 쓰여요)">${esc(sel.desc || '')}</textarea>
+          <textarea rows="2" data-act="npc-field" data-f="look" placeholder="외형 태그 (영어). 비워 두면 AI 이미지를 만들 때 설명 → 카드·로어북 → 채팅 기록 순으로 근거를 찾아 자동으로 만들어요">${esc(sel.look || '')}</textarea>
+          <div class="vn-row tight"><button class="vn-btn sm" data-act="npc-look">자료에서 외형 태그 뽑기 (모델 1회)</button></div>
           <textarea rows="2" data-act="npc-field" data-f="summary" placeholder="관계 요약 (${esc(ctx().name1 || '나')}와 ${esc(cast[0]?.name || '캐릭터')} 사이에서의 위치)">${esc(sel.summary || '')}</textarea>
           <h4>알아낸 정보</h4>
           <div class="vn-facts">${[...NPC_STD(), ...extra].map(fact).join('')}</div>
@@ -1727,7 +1760,7 @@ ${await gatherWorldContext()}`;
   }
   const fmtK = (n) => (n >= 10000 ? (n / 1000).toFixed(1) + 'k' : String(n || 0));
   function tabUsage() {
-    const u = S().usage || {}, rows = usageLog.slice(0, 40).map((e) => `<tr class="${e.status}"><td>${new Date(e.t).toLocaleTimeString('ko-KR', { hour12: false })}</td><td>${e.kind === 'text' ? '텍스트' : e.kind === 'image' ? '이미지' : '영상'}</td><td>${esc(e.label)}</td><td>${e.tok ? `${e.tok.est ? '≈' : ''}${fmtK(e.tok.in)} → ${fmtK(e.tok.out)}` : ''}</td><td>${e.status === 'ok' ? '성공' : e.status === '429' ? '429 재시도' : '실패'}</td></tr>`).join('');
+    const u = S().usage || {}, rows = usageLog.slice(0, 40).map((e) => `<tr class="${e.status}"><td>${new Date(e.t).toLocaleTimeString('ko-KR', { hour12: false })}</td><td>${e.kind === 'text' ? '텍스트' : e.kind === 'image' ? '이미지' : '영상'}</td><td>${esc(e.label)}</td><td>${e.tok ? `${e.tok.est ? '≈' : ''}${fmtK(e.tok.in)} → ${fmtK(e.tok.out)}` : ''}</td><td>${e.status === 'ok' ? '성공' : e.status === '429' ? '429 재시도' : `실패${e.err ? `: ${esc(e.err)}` : ''}`}</td></tr>`).join('');
     return `
       <div class="vn-stats2">
         <div><small>텍스트 호출</small><b>${u.text || 0}</b><span>토큰 ≈ ${fmtK(u.tin)} 입력 / ${fmtK(u.tout)} 출력</span></div>
@@ -1775,9 +1808,9 @@ ${await gatherWorldContext()}`;
     return `
       ${sec('언어 · 개발', `${selRow('lang', 'Language / 언어', [['ko', '한국어'], ['en', 'English']], '화면 문구와 모델이 쓰는 언어가 함께 바뀌어요. English로 하면 입력도 출력도 영어로 진행할 수 있어요.')}${chk('devMode', '개발자 모드', '이벤트가 왜 안 나오는지 확인하는 진단 탭이 생겨요 (이벤트 판단 기록, 강제 실행, 응답 원문, 지시문 보기).')}`)}
       ${sec('진행', `${chk('enabled', 'VN Studio 사용')}${chk('autoOpen', '캐릭터가 답하면 팝업 자동으로 열기')}${chk('inject', '모델에게 [VN] 블록 규칙 보내기', '끄면 표정·장소·호감도·선택지가 자동으로 안 나와요.')}${chk('autoAnalyze', '기존 채팅이 있으면 처음 한 번 호감도·관계·정보 분석', '모델을 1회 호출해요. 채팅 내용이 연결된 모델로 전송돼요.')}${selRow('choicesMode', '입력 방식', [['both', '선택지 + 직접 입력'], ['choice', '선택지 우선'], ['free', '직접 입력만']])}`)}
-      ${sec('채팅 모드: 글상자에 안 보이게 숨기기', `${chk('hideBlocks', '상태창·코드블록·HTML 블록 통째로 숨기기', '```로 감싼 블록, &lt;div&gt;/&lt;table&gt;/&lt;details&gt; 같은 HTML 블록, [STATUS]…[/STATUS]를 연출에서 빼요.')}<div class="vn-opt"><label class="vn-lbl">숨길 태그 이름 (쉼표로 구분)</label><input type="text" data-vk="hideTags" placeholder="예: mythink, 상태창"><p class="vn-opt-h">think, status, 상태창, details 등 흔한 태그는 이미 자동으로 숨겨요.</p></div><div class="vn-opt"><label class="vn-lbl">숨길 패턴 (정규식, 한 줄에 하나)</label><textarea rows="2" data-vk="hideRegex" placeholder="예: ^\\[.*?\\]$"></textarea></div>`)}
+      ${sec('채팅 모드: 글상자에 안 보이게 숨기기', `${chk('hideInChat', 'SillyTavern 채팅창에서도 숨기기 (아래 태그 이름 + facts/status 등)', '화면에서만 가려요. 저장된 대화와 모델에게 보내는 내용은 그대로예요. 짝이 안 맞는 태그(&lt;small&gt;&lt;facts&gt;&lt;/small&gt;&lt;/facts&gt;)도 처리해요.')}${chk('htmlAuto', 'HTML/CSS 서식이 있는 메시지는 원본 서식 패널을 자동으로 열기', '프리셋이 만드는 색·애니메이션·움직이는 이미지 상태창을 팝업 안 작은 창으로 볼 수 있어요. 해당 메시지가 있을 때만 상단에 &lt;/&gt; 버튼이 나타나요.')}${chk('hideBlocks', '상태창·코드블록·HTML 블록 통째로 숨기기', '```로 감싼 블록, &lt;div&gt;/&lt;table&gt;/&lt;details&gt; 같은 HTML 블록, [STATUS]…[/STATUS]를 연출에서 빼요.')}<div class="vn-opt"><label class="vn-lbl">숨길 태그 이름 (쉼표로 구분)</label><input type="text" data-vk="hideTags" placeholder="예: mythink, 상태창"><p class="vn-opt-h">think, status, 상태창, details 등 흔한 태그는 이미 자동으로 숨겨요.</p></div><div class="vn-opt"><label class="vn-lbl">숨길 패턴 (정규식, 한 줄에 하나)</label><textarea rows="2" data-vk="hideRegex" placeholder="예: ^\\[.*?\\]$"></textarea></div>`)}
       ${sec('이벤트 씬', `${numRow('eventEvery', '이벤트 최소 간격 (메시지 수)', 2, 60)}${selRow('eventSrc', '장면 이미지', [['ss', '장면 생성기 새 장면 우선, 없으면 새로 생성'], ['gen', '항상 새로 생성'], ['ssonly', '장면 생성기 장면만 (생성 비용 0)']], L2(`발동 조건: ① 모델이 event: 를 낼 때(간격 적용) ② 호감도가 한 번에 ±4 이상 변하거나 하트 단계를 넘을 때 ③ 일상 모드의 하이라이트 장면 ④ 글상자 아래 "🎬 이 장면을 이벤트 씬으로" 버튼. ${M().lastEvent <= -90 ? '아직 이벤트가 한 번도 없었어요.' : `마지막 이벤트 후 ${sinceEvent()}개 메시지가 지났어요.`}`, `Triggers: ① the model emits event: (interval applies) ② closeness changes by ±4 or more at once, or a heart level is passed ③ a daily-mode highlight scene ④ the "🎬 Make this an event scene" button under the text box. ${M().lastEvent <= -90 ? 'No event has happened yet.' : `${sinceEvent()} messages since the last event.`}`))}${chk('autoEventImg', '이벤트 발생 시 CG 자동 준비')}${chk('autoEventVid', '이벤트 CG를 영상으로 자동 변환', '켜면 확인창 없이 요금이 나가요.')}${chk('videoConfirm', '수동 영상 생성 때 요금 확인창 띄우기')}${chk('useAvatars', 'CG 생성 시 캐릭터·페르소나 이미지를 참조로 보내기')}`)}
-      ${sec('연동 · 이미지 생성 (API 요금 발생)', `${chk('useSS', '장면 생성기(Scene Studio) 연동', '장소 목록·지도·이미 만든 장면 이미지·화풍·외형 태그를 가져다 써요.')}${chk('autoBg', '배경이 없는 장소는 한 번만 자동 생성')}${chk('autoSprite', '고른 표정이 없으면 한 장씩 자동 생성')}${numRow('spriteCap', '표정 자동 생성 상한 (접속당)', 0, 60)}${numRow('imgGapSec', '이미지 요청 간격 (초)', 0, 60, 1, '429(요청 과다)가 뜨면 늘려 보세요. 429가 나면 자동으로 기다렸다가 다시 시도해요.')}${chk('cutout', '생성한 캐릭터 이미지의 배경 자동 제거 (투명 PNG)', '흰 배경으로 만든 뒤 가장자리에서부터 배경색만 지워요. 배경이 균일하지 않으면 원본을 그대로 저장해요.')}${numRow('cutTol', '배경 제거 민감도', 10, 80, 2, '값이 크면 배경을 더 많이 지우지만 인물 가장자리가 깎일 수 있어요.')}${chk('useST', 'SillyTavern 표정 스프라이트 사용')}${chk('classify', '[VN] 블록에 표정이 없으면 분류기로 추정')}`)}
+      ${sec('연동 · 이미지 생성 (API 요금 발생)', `${chk('useSS', '장면 생성기(Scene Studio) 연동', '장소 목록·지도·이미 만든 장면 이미지·화풍·외형 태그를 가져다 써요.')}${chk('autoBg', '배경이 없는 장소는 한 번만 자동 생성')}${chk('autoSprite', '고른 표정이 없으면 한 장씩 자동 생성')}${numRow('spriteCap', '표정 자동 생성 상한 (접속당)', 0, 60)}${numRow('llmTimeout', '모델 응답 기다리는 최대 시간 (초)', 30, 600, 10, '일상 모드 계획·장면 생성이 이 시간 안에 오지 않으면 이유와 함께 실패로 처리하고 다시 시도할 수 있어요.')}${numRow('imgGapSec', '이미지 요청 간격 (초)', 0, 60, 1, '429(요청 과다)가 뜨면 늘려 보세요. 429가 나면 자동으로 기다렸다가 다시 시도해요.')}${chk('cutout', '생성한 캐릭터 이미지의 배경 자동 제거 (투명 PNG)', '흰 배경으로 만든 뒤 가장자리에서부터 배경색만 지워요. 배경이 균일하지 않으면 원본을 그대로 저장해요.')}${numRow('cutTol', '배경 제거 민감도', 10, 80, 2, '값이 크면 배경을 더 많이 지우지만 인물 가장자리가 깎일 수 있어요.')}${chk('useST', 'SillyTavern 표정 스프라이트 사용')}${chk('classify', '[VN] 블록에 표정이 없으면 분류기로 추정')}`)}
       ${sec('선택지 (CYOA)', `${numRow('choiceCount', '선택지 개수', 2, 4)}${numRow('choiceLen', '선택지 길이 (글자 수 안팎)', 20, 200, 5, '짧고 단조로운 선택지를 줄이려면 늘려 보세요. 행동과 대사를 함께 써요.')}${[1, 2, 3, 4].map((i) => `<div class="vn-opt"><label class="vn-lbl">${i}번 선택지 프롬프트</label><textarea rows="3" data-vk="choiceP${i}" placeholder="${esc(CHOICE_DEF[langKey()][i - 1])}"></textarea></div>`).join('')}<p class="vn-opt-h" style="margin-left:0">비워 두면 위 기본 문장(placeholder)을 써요. {{user}}와 {{char}}를 쓸 수 있어요. 채팅 모드와 일상 모드 모두에 적용돼요.</p><div class="vn-opt"><label class="vn-lbl">선택지 공통 추가 지시</label><textarea rows="2" data-vk="choiceExtra" placeholder="예: 매번 서로 다른 장소/소품을 활용할 것"></textarea></div>`)}
       ${sec('응답 품질 · 언어', `${chk('keepLen', '내 입력이 짧아도 답변 길이·품질 유지', '모델에게 "이전 답변만큼 길고 풍부하게, 짧은 입력을 따라 줄어들지 말 것"을 항상 전달해요.')}<div class="vn-opt"><label class="vn-lbl">추가 품질 지시 (선택)</label><textarea rows="2" data-vk="keepLenText" placeholder="예: 최소 4문단, 감각 묘사와 인물의 속마음을 포함"></textarea></div>${selRow('outLang', '이야기 출력 언어', [['ui', '화면 언어와 같게'], ['ko', '한국어'], ['en', 'English'], ['chat', '채팅 기록을 따라감']], '기존 채팅이 영어여도 한국어를 고르면 모델이 한국어로 쓰도록 강하게 지시해요. 선택지와 상태 정보도 같은 언어예요.')}${chk('translateInput', '내가 다른 언어로 입력하면 출력 언어로 번역해서 전송 (모델 1회)', '예: 한국어로 입력했는데 출력 언어가 English이면 영어로 번역한 문장이 SillyTavern에 기록돼요.')}`)}
       ${sec('일상 모드', `<div class="vn-opt"><label class="vn-lbl">이벤트 씨앗 (한 줄에 하나)</label><textarea rows="5" data-vk="dailySeeds"></textarea></div><div class="vn-opt"><label class="vn-lbl">인카운터 씨앗 (한 줄에 하나)</label><textarea rows="5" data-vk="encSeeds"></textarea><p class="vn-opt-h">하루 계획을 만들 때 이 중 일부가 무작위로 들어가 혼자 있는 시간·NPC·우연한 만남을 풍성하게 해요.</p></div>${numRow('encCount', '하루에 넣을 인카운터 수', 0, 4)}`)}
@@ -1787,6 +1820,7 @@ ${await gatherWorldContext()}`;
         <div class="vn-opt"><label class="vn-lbl">제외 요소 (이런 건 그리지 않기)</label><input type="text" data-vk="negative" placeholder="예: text, watermark, extra fingers"></div>
         <div class="vn-opt"><label class="vn-lbl">배경 화풍 (비우면 위 화풍 사용)</label><textarea rows="2" data-vk="style"></textarea></div>
         ${chk('lookVision', '외형 태그를 뽑을 때 카드 PNG 이미지도 함께 보내기', 'Gemini 모델로 이미지를 먼저 보고, 설명은 빈틈을 채워요.')}${`<div class="vn-opt"><label class="vn-lbl">외형 추출 모델 (Gemini)</label><input type="text" data-vk="lookModel"></div>`}`)}
+      ${sec('저장 공간', `${chk('deleteFiles', '이미지를 지울 때 서버 파일도 함께 지우기', '다른 곳에서 쓰지 않는 VN Studio 이미지(user/images/vnstudio)만 지워요. 이 서버가 삭제를 지원하지 않으면 파일은 그대로 남아요.')}<div class="vn-row tight"><button class="vn-btn sm" data-act="clean-scan">쓰지 않는 표정·NPC 이미지 찾아서 정리</button></div>`)}
       <div class="vn-row"><button class="vn-btn" data-act="show-prompt">모델에 보내는 지시문 보기</button><button class="vn-btn danger" data-act="reset-aff">이 채팅 호감도 초기화</button></div>`;
   }
   function fillInputs(root) {
@@ -1901,6 +1935,8 @@ ${await gatherWorldContext()}`;
       }
     }
     ui.hud(turn); applyBg(turn.loc);
+    ui.root.classList.toggle('has-rich', !!turn.rich);
+    if (turn.rich && (S().htmlAuto || htmlPanelOpen())) openHtmlPanel(turn); else if (!turn.rich) closeHtmlPanel();
     st.curEmo = turn.emo;
     let sp = Promise.resolve();
     const np = turn.noChar && turn.npcName ? npcByName(turn.npcName) : null;
@@ -1946,7 +1982,7 @@ ${await gatherWorldContext()}`;
       if (ms && !replay && (b.event || (ctx().chat || []).length - ms[2] > 6)) delete meta.milestone[ch.name];
     }
     const rawLoc = b.loc || ssCurrentName() || meta.loc, loc = ssFind(rawLoc)?.name || rawLoc;   // 장면 생성기의 장소 이름으로 통일
-    return { src: 'chat', id, ch, who: msg.name, loc, emo, emoSeq, outfit: b.outfit, time: b.time, weather: b.weather, event: b.event, strong, lines, choices: b.choices.slice(0, 4), noEvent: replay };
+    return { src: 'chat', id, rich: hasRich(msg.mes), ch, who: msg.name, loc, emo, emoSeq, outfit: b.outfit, time: b.time, weather: b.weather, event: b.event, strong, lines, choices: b.choices.slice(0, 4), noEvent: replay };
   }
   const ssCurrentName = () => { const m = ctx().chatMetadata?.minimap, p = m?.world?.places?.find((x) => x.id === m.current); return S().useSS && p ? p.name : ''; };
   async function onMessage(id) {
@@ -2226,10 +2262,11 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
   }
   function showRetry(msg) {
     showWaiting(false); ui.clearEnd(); ui.q('#vn-box').classList.add('end'); ui.q('#vn-input').style.display = 'none';
-    ui.q('#vn-endbtns').innerHTML = `<span class="vn-hint">${esc(msg)}</span><button class="vn-pill" data-act="retry">다시 시도</button>`;
+    ui.q('#vn-endbtns').innerHTML = `<span class="vn-hint vn-err">${esc(msg)}</span><button class="vn-pill" data-act="retry">다시 시도</button>`;
   }
-  async function playSlot() {
+  async function playSlot(force = false) {
     const meta = M(), ch = activeChar();
+    if (force) { const k = `${meta.day}:${meta.slot}`; delete nodeP[chatKey() + ':' + k]; delete planP[chatKey() + ':' + meta.day]; }     // 멈춰 있던 요청을 버리고 새로 시작
     if (!ch) { toastr.warning('캐릭터 채팅을 먼저 열어 주세요.'); return; }
     await stSprites(ch);
     st.slotAff = 0; st.firstPick = false; st.sceneLines = []; st.slotPicks = [];
@@ -2253,7 +2290,7 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
       st.slotInfo.title = node.title || slot.premise;
       await playTurn(turnFromNode(node, slot, ch));
       if (idx >= SLOTS.length - 1) getPlan(day + 1).catch(() => {});
-    } catch (e) { if (rid !== st.reqId) return; console.warn('[VN] 일상 생성 실패', e); toastr.error('일상 이벤트 생성 실패: ' + (e.message || e)); showRetry('생성에 실패했어요.'); }
+    } catch (e) { if (rid !== st.reqId) return; console.warn('[VN] 일상 생성 실패', e); toastr.error('일상 이벤트 생성 실패: ' + (e.message || e), '', { timeOut: 12000 }); showRetry('생성 실패: ' + (e.message || e)); }
   }
   function dailyChoice(c) {
     const turn = st.turn, ch = turn.ch, meta = M();
@@ -2301,14 +2338,68 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
     await replayLast();
   }
 
+  const sentencesWith = (text, name, max = 3, len = 300) => { const out = [], nm = name.toLowerCase(); for (const s of String(text || '').split(/(?<=[.!?。！？])\s+|\n+/)) { if (s.toLowerCase().includes(nm)) { out.push(s.trim().slice(0, len)); if (out.length >= max) break; } } return out; };
+  async function npcSources(n, ch) {
+    const card = sentencesWith([ch?.description, ch?.scenario].filter(Boolean).join('\n'), n.name, 4);
+    let lore = ''; try { lore = await loreDesc(n.name); } catch { /* 로어북 없음 */ }
+    const chat = [];
+    for (const m of [...(ctx().chat || [])].reverse().slice(0, 150)) { if (!m || m.is_system) continue; chat.push(...sentencesWith(parseBlock(m.mes).text, n.name, 2, 260)); if (chat.length >= 8) break; }
+    return { card, lore: String(lore || '').slice(0, 600), chat: chat.reverse() };
+  }
+  /* NPC 외형 태그: 저장된 태그 → (설명 + 카드·로어북 + 채팅 기록에서 이름이 언급된 문장)으로 모델이 영어 태그를 만든다. 자료가 전혀 없으면 태그 없이 AI가 역할에 맞게 설계한다 */
+  async function npcLookTags(n, ch, force = false) {
+    if (n.look && !force) return { text: n.look, source: '저장된 외형 태그' };
+    const src = await npcSources(n, ch), parts = [];
+    if (n.role) parts.push(`[Role] ${n.role}`); if (n.desc) parts.push(`[Notes] ${n.desc}`);
+    if (src.card.length) parts.push(`[Character card mentions]\n- ${src.card.join('\n- ')}`);
+    if (src.lore) parts.push(`[Lorebook]\n${src.lore}`);
+    if (src.chat.length) parts.push(`[Chat mentions]\n- ${src.chat.join('\n- ')}`);
+    const source = (src.card.length || src.lore) ? '카드·로어북' : src.chat.length ? '채팅 기록' : n.desc ? '설명' : '';
+    if (!source) return { text: '', source: '' };
+    const raw = await llm(`Do NOT roleplay. From the material below about the person named "${n.name}", write ONE line of comma-separated English visual tags describing only the physical appearance and outfit (age impression, gender, hair, eyes, skin, build, clothing, accessories). Use what the material states or clearly implies; where it says nothing, choose plausible fitting details. No names, no personality, under 45 words. Output only that line.\n\n${parts.join('\n\n')}`, 1024, `NPC 외형 추출 (${n.name})`);
+    const one = cleanLook(raw) || String(raw).trim().replace(/\s*\n+\s*/g, ' ').slice(0, 600);
+    if (one.length >= 15) { n.look = one.slice(0, 600); saveMeta(); return { text: n.look, source }; }
+    return { text: '', source };
+  }
   async function genNpcImage(n, ch) {
     const s = S(), refs = [], notes = [];
     if (ch) { const r = await charRefs(ch, outfitOf(ch), 1); if (r.refs[0]) { refs.push(r.refs[0]); notes.push('Reference image 1 shows the art style and rendering only. The NPC must be a DIFFERENT person.'); } }
-    const style = styleMain();
-    const prompt = `${notes.join(' ')}\nGenerate one image: a visual novel character sprite, waist-up portrait of an NPC named "${n.name}"${n.role ? `, ${n.role}` : ''}${n.desc ? `. ${n.desc}` : ''}. Natural expressive pose, slight three-quarter angle. Rendering style: ${style}. Match the rendering style and level of realism of the reference. Background: plain flat solid pure white, no floor, no shadow, no gradient. Single character, no text, no watermark.`;
+    let lk = { text: '', source: '' };
+    try { lk = await npcLookTags(n, ch); } catch (e) { console.warn('[VN] NPC 외형 추출 실패', e); }
+    const worldLook = String(ssWorld()?.look || '').slice(0, 200);
+    const appearance = lk.text ? ` (${lk.text})` : (n.desc ? `. ${n.desc}` : `. No appearance is specified, so invent a distinctive, fitting look for this role${worldLook ? ` in this world: ${worldLook}` : ''}`);
+    st.lastNpcSrc = lk.source || (n.desc ? '설명' : '자료 없음 (AI가 역할에 맞게 설계)');
+    const prompt = `${notes.join(' ')}\nGenerate one image: a visual novel character sprite, waist-up portrait of an NPC named "${n.name}"${n.role ? `, ${n.role}` : ''}${appearance}. Natural expressive pose, slight three-quarter angle. Rendering style: ${styleMain()}. Match the rendering style and level of realism of the reference. Background: plain flat solid pure white, no floor, no shadow, no gradient. Single character, no text, no watermark.`;
     let url = await geminiGenerate(prompt, refs, '3:4', 'vngen_', `NPC ${n.name}`);
-    if (s.cutout) { try { const c = await cutoutImage(url); if (c.url) url = c.url; } catch { /* 원본 유지 */ } }
+    if (s.cutout) { try { const c = await cutoutImage(url); if (c.url) { const orig = url; url = c.url; dropImage(orig); } } catch { /* 원본 유지 */ } }
     return url;
+  }
+
+  /* ---------- 서버 이미지 정리 ---------- */
+  const IMG_RE = /\/user\/images\/vnstudio\//;
+  function allImageRefs() {
+    const s = S(), set = new Set(), add = (u) => { if (u) set.add(u); };
+    for (const c of Object.values(s.chars || {})) { add(c.profile); for (const o of Object.values(c.outfits || {})) { add(o.base); Object.values(o.emo || {}).forEach(add); } }
+    for (const by of Object.values(s.placesBy || {})) Object.values(by).forEach((p) => add(p.url));
+    Object.values(s.places || {}).forEach((p) => add(p.url));
+    const m = ctx().chatMetadata?.[MODULE]; if (m) { (m.gallery || []).forEach((e) => { add(e.url); add(e.video); }); (m.npcs || []).forEach((n) => add(n.img)); }
+    return set;
+  }
+  /* 목록에서 지운 이미지가 다른 곳에서 쓰이지 않으면 서버 파일도 지운다 (가능한 경우에만) */
+  async function dropImage(url) {
+    try {
+      if (!S().deleteFiles || !url || !IMG_RE.test(url) || allImageRefs().has(url)) return false;
+      const rel = String(url).replace(/^\/+/, '');
+      for (const body of [{ path: rel }, { path: '/' + rel }]) { const r = await fetch('/api/images/delete', { method: 'POST', headers: ctx().getRequestHeaders(), body: JSON.stringify(body) }); if (r.ok) return true; }
+    } catch { /* 지울 수 없으면 그대로 둔다 */ }
+    return false;
+  }
+  async function listVnImages() {
+    const hdr = ctx().getRequestHeaders();
+    for (const [u, b] of [['/api/images/list/vnstudio', {}], ['/api/images/list', { folder: 'vnstudio' }]]) {
+      try { const r = await fetch(u, { method: 'POST', headers: hdr, body: JSON.stringify(b) }); if (r.ok) { const j = await r.json(); if (Array.isArray(j)) return j.map((x) => (typeof x === 'string' ? x : (x.name || x.path || ''))).filter(Boolean); } } catch { /* 다음 방법 */ }
+    }
+    return null;
   }
 
   /* ================= 모달 동작 / 입력 처리 ================= */
@@ -2333,11 +2424,11 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
       case 'emo-cut': {
         const o = cd.outfits[ofName], l = el.dataset.l, url = o?.emo?.[l]; if (!url) return;
         ui.status('배경을 지우는 중…');
-        try { const c = await cutoutImage(url); if (c.url) { o.emo[l] = c.url; if (o.base === url) o.base = c.url; saveSettings(); toastr.success('배경을 지웠어요'); } else toastr.warning(`배경이 균일하지 않아 지우지 못했어요 (인식 ${(c.ratio * 100).toFixed(0)}%). 설정의 배경 제거 민감도를 조절해 보세요.`); }
+        try { const c = await cutoutImage(url); if (c.url) { o.emo[l] = c.url; if (o.base === url) o.base = c.url; saveSettings(); dropImage(url); toastr.success('배경을 지웠어요'); } else toastr.warning(`배경이 균일하지 않아 지우지 못했어요 (인식 ${(c.ratio * 100).toFixed(0)}%). 설정의 배경 제거 민감도를 조절해 보세요.`); }
         catch (e) { toastr.error('배경 제거 실패: ' + (e.message || e)); }
         ui.status(''); return refresh();
       }
-      case 'dos-reset': delete cd.profile; saveSettings(); return renderModal();
+      case 'dos-reset': { const old = cd.profile; delete cd.profile; saveSettings(); dropImage(old); return renderModal(); }
       case 'dos-pick': {
         const imgs = [...new Set([cd.profile, ...Object.values(cd.outfits).flatMap((o) => [o.base, ...Object.values(o.emo || {})])].filter(Boolean))];
         const body = ui.q('#vn-mbody'); body.insertAdjacentHTML('afterbegin', `<div class="vn-pickgrid" id="vn-pickgrid"><p class="vn-hint">대표로 쓸 이미지를 고르세요</p>${imgs.map((u) => `<button class="vn-pickitem" data-act="dos-pickset" data-u="${esc(u)}"><img src="${esc(u)}" alt=""></button>`).join('')}<button class="vn-btn sm" data-act="dos-pickclose">닫기</button></div>`); return;
@@ -2351,19 +2442,24 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
         subsOf(card).push(n); saveSettings(); st.selChar = chKey(subChar(card, n)); return renderModal();
       }
       case 'sub-del': { const card = ch._parent || ch; if (!confirm(`'${el.dataset.name}' 인물을 목록에서 뺄까요? (만든 이미지는 서버에 남아요)`)) return; cdata(card).subs = subsOf(card).filter((x) => x !== el.dataset.name); saveSettings(); st.selChar = chKey(card); return renderModal(); }
+      case 'npc-look': {
+        const n = npcByName(st.npcSel); if (!n) return; el.disabled = true; ui.status('NPC 외형 근거를 찾는 중…');
+        try { const r = await npcLookTags(n, ch, true); toastr[r.text ? 'success' : 'warning'](r.text ? `외형 태그를 만들었어요 (근거: ${r.source})` : '카드·로어북·채팅 기록에서 이 인물의 외형 근거를 찾지 못했어요. 설명을 적어 주세요.'); } catch (e) { toastr.error('실패: ' + (e.message || e)); }
+        ui.status(''); return renderModal();
+      }
       case 'npc-analyze': { el.disabled = true; ui.status('NPC를 분석하는 중…'); try { const n = await analyzeNpcs(ch); toastr.success(`NPC ${n.added}명을 추가하고 ${n.updated}명을 갱신했어요`); } catch (e) { toastr.error('분석 실패: ' + (e.message || e)); } ui.status(''); return renderModal(); }
       case 'npcfact-add': { const n = npcByName(st.npcSel); if (!n) return; const l = $q('#vn-nfl', ui.root).value.trim().slice(0, 14), v = $q('#vn-nfv', ui.root).value.trim().slice(0, 90); if (!l || !v) return; (n.facts ||= {})[l] = v; saveMeta(); return renderModal(); }
       case 'npcfact-del': { const n = npcByName(st.npcSel); if (n?.facts) { delete n.facts[el.dataset.l]; saveMeta(); } return renderModal(); }
       case 'npc-open': st.npcSel = el.dataset.name; return renderModal();
-      case 'npc-del': { if (!confirm('이 인물을 삭제할까요?')) return; meta.npcs = meta.npcs.filter((n) => n.name !== st.npcSel); st.npcSel = ''; saveMeta(); return renderModal(); }
-      case 'npc-imgdel': { const n = npcByName(st.npcSel); if (n) { delete n.img; saveMeta(); } return renderModal(); }
-      case 'npc-cut': { const n = npcByName(st.npcSel); if (!n?.img) return; ui.status('배경을 지우는 중…'); try { const c = await cutoutImage(n.img); if (c.url) { n.img = c.url; saveMeta(); } else toastr.warning('배경이 균일하지 않아 지우지 못했어요.'); } catch (e) { toastr.error('실패: ' + (e.message || e)); } ui.status(''); return renderModal(); }
+      case 'npc-del': { if (!confirm('이 인물을 삭제할까요?')) return; { const gone = meta.npcs.find((n) => n.name === st.npcSel); meta.npcs = meta.npcs.filter((n) => n.name !== st.npcSel); st.npcSel = ''; saveMeta(); dropImage(gone?.img); } return renderModal(); }
+      case 'npc-imgdel': { const n = npcByName(st.npcSel); if (n) { const old = n.img; delete n.img; saveMeta(); dropImage(old); } return renderModal(); }
+      case 'npc-cut': { const n = npcByName(st.npcSel); if (!n?.img) return; ui.status('배경을 지우는 중…'); try { const c = await cutoutImage(n.img); if (c.url) { const old = n.img; n.img = c.url; saveMeta(); dropImage(old); } else toastr.warning('배경이 균일하지 않아 지우지 못했어요.'); } catch (e) { toastr.error('실패: ' + (e.message || e)); } ui.status(''); return renderModal(); }
       case 'npc-gen': {
         const n = npcByName(st.npcSel); if (!n) return;
         if (!s.geminiKey.trim()) return toastr.warning('이미지 API 키를 먼저 넣어 주세요.');
         if (!confirm(`'${n.name}' 이미지를 AI로 만들까요? (이미지 1회 요금)`)) return;
         ui.status(`${n.name} 이미지를 만드는 중…`);
-        try { n.img = await genNpcImage(n, ch); saveMeta(); } catch (e) { toastr.error('생성 실패: ' + (e.message || e)); }
+        try { const old = n.img; n.img = await genNpcImage(n, ch); saveMeta(); dropImage(old); toastr.info(`외형 근거: ${st.lastNpcSrc}`); } catch (e) { toastr.error('생성 실패: ' + (e.message || e)); }
         ui.status(''); return renderModal();
       }
       /* 개발자 */
@@ -2373,8 +2469,8 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
       case 'usage-reset': S().usage = { text: 0, image: 0, video: 0, r429: 0 }; usageLog.length = 0; saveSettings(); ui.usagePill(); return renderModal();
       case 'of-wear': meta.outfit[ch.name] = ofName; saveMeta(); return refresh();
       case 'of-def': cd.def = ofName; saveSettings(); return renderModal();
-      case 'of-del': if (!confirm(`'${ofName}' 의상을 삭제할까요? (서버의 이미지 파일은 남아요)`)) return; delete cd.outfits[ofName]; if (cd.def === ofName) cd.def = ''; if (meta.outfit[ch.name] === ofName) delete meta.outfit[ch.name]; saveSettings(); saveMeta(); return refresh();
-      case 'emo-del': delete cd.outfits[ofName]?.emo?.[el.dataset.l]; saveSettings(); return refresh();
+      case 'of-del': if (!confirm(`'${ofName}' 의상을 삭제할까요? (서버의 이미지 파일은 남아요)`)) return; { const o = cd.outfits[ofName], urls = [o?.base, ...Object.values(o?.emo || {})]; delete cd.outfits[ofName]; if (cd.def === ofName) cd.def = ''; if (meta.outfit[ch.name] === ofName) delete meta.outfit[ch.name]; saveSettings(); saveMeta(); urls.forEach(dropImage); return refresh(); }
+      case 'emo-del': { const old = cd.outfits[ofName]?.emo?.[el.dataset.l]; delete cd.outfits[ofName]?.emo?.[el.dataset.l]; saveSettings(); dropImage(old); return refresh(); }
       case 'of-genset': {
         if (!s.geminiKey.trim()) return toastr.warning('이미지 API 키를 먼저 넣어 주세요.');
         const list = el.dataset.n === '1' ? ['neutral'] : enabledEmos(ch);
@@ -2387,7 +2483,7 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
         if (!s.geminiKey.trim()) return toastr.warning('이미지 API 키를 먼저 넣어 주세요.');
         if (!confirm(`'${el.dataset.l}' 표정을 새로 만들까요? (이미지 1회 요금)`)) return;
         ui.status('표정을 다시 만드는 중…');
-        try { const url = await genSpriteImage(ch, ofName, el.dataset.l); const o = cd.outfits[ofName]; (o.emo ||= {})[el.dataset.l] = url; if (el.dataset.l === 'neutral') o.base = url; saveSettings(); } catch (e) { toastr.error('생성 실패: ' + (e.message || e)); }
+        try { const url = await genSpriteImage(ch, ofName, el.dataset.l); const o = cd.outfits[ofName], old = o.emo?.[el.dataset.l]; (o.emo ||= {})[el.dataset.l] = url; if (el.dataset.l === 'neutral') o.base = url; saveSettings(); dropImage(old); } catch (e) { toastr.error('생성 실패: ' + (e.message || e)); }
         ui.status(''); return refresh();
       }
       case 'look-copy': { const v = String(ssSet()?.appearance?.[ch.name]?.t || '').trim(); if (v) { cd.look = v; saveSettings(); toastr.success('장면 생성기 태그를 복사했어요'); } return renderModal(); }
@@ -2423,8 +2519,19 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
       case 'pl-ssopen': st.plPickFor = st.plPickFor === plKey ? '' : plKey; return renderModal();
       case 'pl-ssset': { const p = placesOf()[plKey]; if (p) { p.url = el.dataset.u; p.user = true; saveSettings(); if (pk(meta.loc) === plKey) ui.setBg(p.url, p.name); } st.plPickFor = ''; return renderModal(); }
       case 'pl-gen': { if (!confirm('이 장소의 배경을 새로 생성할까요? (이미지 요금이 발생해요)')) return; const p = placesOf()[plKey]; await generatePlace(p.name, true); if (pk(meta.loc) === plKey) applyBg(p.name); return renderModal(); }
-      case 'pl-del': if (!confirm('이 장소를 삭제할까요?')) return; delete placesOf()[plKey]; saveSettings(); return renderModal();
-      case 'gal-del': { const id = el.closest('[data-id]').dataset.id; meta.gallery = meta.gallery.filter((e) => e.id !== id); saveMeta(); return renderModal(); }
+      case 'pl-del': { if (!confirm('이 장소를 삭제할까요?')) return; const old = placesOf()[plKey]?.url; delete placesOf()[plKey]; saveSettings(); dropImage(old); return renderModal(); }
+      case 'gal-del': { const id = el.closest('[data-id]').dataset.id, gone = meta.gallery.find((e) => e.id === id); meta.gallery = meta.gallery.filter((e) => e.id !== id); saveMeta(); dropImage(gone?.url); dropImage(gone?.video); return renderModal(); }
+      case 'clean-scan': {
+        el.disabled = true; ui.status('저장된 이미지를 확인하는 중…');
+        const files = await listVnImages(); ui.status(''); el.disabled = false;
+        if (!files) return toastr.warning('이 서버에서는 이미지 목록을 가져올 수 없어요. 확장 폴더(user/images/vnstudio)를 직접 확인해 주세요.');
+        const refs = allImageRefs(), orphans = files.filter((f) => /^(vngen_|vncut_)/.test(f.split('/').pop()) && !refs.has('/user/images/vnstudio/' + f.split('/').pop()));
+        if (!orphans.length) return toastr.success(`전체 ${files.length}개 중 지울 미사용 표정·NPC 이미지는 없어요.`);
+        if (!confirm(`vnstudio 폴더에 이미지 ${files.length}개가 있고, 그중 어디에도 쓰이지 않는 표정·NPC 이미지가 ${orphans.length}개예요.\n지울까요? (이벤트 CG와 영상은 다른 채팅에서 쓰일 수 있어 건드리지 않아요)`)) return;
+        let n = 0; const old = S().deleteFiles; S().deleteFiles = true;
+        for (const f of orphans) { if (await dropImage('/user/images/vnstudio/' + f.split('/').pop())) n++; }
+        S().deleteFiles = old; return toastr.success(`${n}개를 지웠어요`);
+      }
       case 'show-prompt': return alert(injectText() || '(지시문이 꺼져 있어요)');
       case 'reset-aff': if (!confirm('이 채팅의 호감도를 모두 0으로 되돌릴까요?')) return; meta.aff = {}; meta.applied = {}; meta.heartDone = {}; saveMeta(); return ui.hud(st.turn);
       /* 공략집 */
@@ -2533,9 +2640,19 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
   function bindUI() {
     const root = ui.root;
     // 창 크기에 맞춰 레이아웃을 자동으로 줄인다 (최대화하지 않은 작은 창에서도 화면이 보이게)
-    const fit = () => { const r = ui.q('#vn-stage').getBoundingClientRect(); root.dataset.size = (r.height < 520 || r.width < 520) ? 'xs' : (r.height < 700 || r.width < 760) ? 'sm' : 'md'; scrollText(); };
+    const fit = () => { const r = ui.q('#vn-stage').getBoundingClientRect(); if (!r.width || !r.height) return;      // 창이 숨겨진 동안은 다시 재지 않는다
+      root.dataset.size = (r.height < 520 || r.width < 520) ? 'xs' : (r.height < 700 || r.width < 760) ? 'sm' : 'md'; scrollText(); };
     if (window.ResizeObserver) { new ResizeObserver(fit).observe(ui.q('#vn-stage')); new ResizeObserver(() => { if (st.stick) ui.q('#vn-text').scrollTop = ui.q('#vn-text').scrollHeight; }).observe(ui.q('#vn-box')); }
     window.addEventListener('resize', fit); fit(); ui.fit = fit;
+    // 원본 서식 패널 끌어서 옮기기
+    const hh = ui.q('#vn-hp-head');
+    hh.addEventListener('pointerdown', (e) => {
+      if (e.target.closest('button')) return; e.preventDefault(); hh.setPointerCapture?.(e.pointerId);
+      const pn = ui.q('#vn-htmlpanel'), r = pn.getBoundingClientRect(), sr = ui.q('#vn-stage').getBoundingClientRect(), dx = e.clientX - r.left, dy = e.clientY - r.top;
+      const mv = (ev) => { const x = clamp(ev.clientX - dx - sr.left, 0, sr.width - 80), y = clamp(ev.clientY - dy - sr.top, 0, sr.height - 40); pn.style.left = x + 'px'; pn.style.top = y + 'px'; pn.style.right = 'auto'; S().htmlPos = { x: Math.round(x), y: Math.round(y) }; };
+      const up = () => { hh.removeEventListener('pointermove', mv); hh.removeEventListener('pointerup', up); saveSettings(); };
+      hh.addEventListener('pointermove', mv); hh.addEventListener('pointerup', up);
+    });
     // 글상자 높이 조절 (손잡이를 끌면 캐릭터 이미지가 가려지지 않게 줄일 수 있어요)
     const rz = ui.q('#vn-resize');
     rz.addEventListener('pointerdown', (e) => {
@@ -2573,6 +2690,9 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
         if (act === 'modal-close') return ui.q('#vn-modal').classList.add('vn-off');
         if (act === 'hide') { root.classList.toggle('vn-uihide'); return; }
         if (act === 'log') return toggleLog();
+        if (act === 'html') { if (htmlPanelOpen()) return closeHtmlPanel(); return openHtmlPanel(st.turn); }
+        if (act === 'html-close') return closeHtmlPanel();
+        if (act === 'html-refresh') return openHtmlPanel(st.turn);
         if (act === 'collapse') { const b = ui.q('#vn-box'); b.classList.toggle('min'); a.firstElementChild.className = b.classList.contains('min') ? 'fa-solid fa-chevron-up' : 'fa-solid fa-chevron-down'; return; }
         if (act === 'cancel-wait') return cancelWait();
         if (act === 'txt-up' || act === 'txt-down') { const x = ui.q('#vn-text'); x.scrollBy({ top: (act === 'txt-up' ? -1 : 1) * Math.max(40, x.clientHeight * 0.8), behavior: 'smooth' }); st.stick = false; setTimeout(() => { st.stick = x.scrollHeight - x.scrollTop - x.clientHeight < 36; }, 400); return; }
@@ -2582,7 +2702,7 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
         if (act === 'mode') return toggleMode();
         if (act === 'send') { const i = ui.q('#vn-in'); const v = i.value; i.value = ''; return submitText(v); }
         if (act === 'next-slot') return nextSlot();
-        if (act === 'retry') return M().mode === 'daily' ? playSlot() : replayLast();
+        if (act === 'retry') return M().mode === 'daily' ? playSlot(true) : replayLast();
         if (act === 'make-evt') return manualEvent();
         if (act === 'ev-close') return closeEvent();
         if (act === 'ev-video') { const en = st.viewEvt; if (!en) return; return makeVideo(en).then((v) => { if (v && st.viewEvt === en) renderEvent(en); }); }
@@ -2632,12 +2752,20 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
   }
 
   /* ================= 채팅창의 [VN] 블록 숨기기 ================= */
+  const KNOWN_STATUS_TAGS = ['facts', 'fact', 'infobox', 'charinfo', 'memo', 'tracker', 'status', 'statusblock', 'status_block', 'statuswindow', 'status_window', '상태창', 'hud'];
   function stripTags() {
+    const names = S().hideInChat ? [...new Set([...String(S().hideTags || '').split(',').map((x) => x.trim()).filter(Boolean), ...KNOWN_STATUS_TAGS])].map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) : [];
     document.querySelectorAll('#chat .mes_text').forEach((el) => {
-      if (!/\[VN\]/i.test(el.innerHTML)) return;
-      el.innerHTML = el.innerHTML.replace(RE_BLOCK_ALL, '');
+      let h = el.innerHTML, ch = false;
+      if (/\[VN\]/i.test(h)) { h = h.replace(RE_BLOCK_ALL, ''); ch = true; }
+      for (const n of names) {      // ST 채팅창에서도 숨기기 (화면에서만 가리고, 저장된 대화는 그대로예요)
+        const h2 = h.replace(new RegExp(`<${n}\\b[^>]*>[\\s\\S]*?</${n}\\s*>`, 'gi'), '').replace(new RegExp(`&lt;${n}\\b[\\s\\S]*?&gt;[\\s\\S]*?&lt;/${n}\\s*&gt;`, 'gi'), '');
+        if (h2 !== h) { h = h2; ch = true; }
+      }
+      if (ch) el.innerHTML = h;
     });
   }
+
   /* ================= ST 확장 설정 패널 ================= */
   const drawerHtml = `
 <div class="inline-drawer" id="vn-drawer">
@@ -2836,6 +2964,17 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
     '이미지 올리기': 'Upload image', '장소 이름 (예: 학교 옥상)': 'Place name (e.g. School rooftop)', '설명 (선택: 비우면 장면 생성기 묘사나 로어북에서 찾아 써요)': "Description (optional: if empty, Scene Studio's description or the lorebook is used)", '이미지 없음': 'No image', '올릴 이미지를 선택해 주세요.': 'Choose an image to upload.', '불러올 이미지를 골라 주세요.': 'Choose an image to load.', '직접 지정': 'Set manually', '추가': 'Add',
     'NPC': 'NPC', '채팅 기록으로 분석 (모델 1회)': 'Analyze from chat history (1 model call)', 'NPC를 분석하는 중…': 'Analyzing NPCs…', '관계 요약': 'Relationship summary', '장소 {}, 마커 {}를 추가했어요. 지도 탭에서 수정할 수 있어요.': 'Added {} places and {} markers. You can edit them in the Map tab.', 'NPC {}명을 추가하고 {}명을 갱신했어요': 'Added {} NPCs and updated {}.',
     '카드 PNG·설명에서 영어 외형 태그 뽑기 (모델 1회)': 'Extract English appearance tags from the card PNG and description (1 model call)', '이미 있는 인물이에요.': 'That character already exists.', '\'{}\' 인물을 목록에서 뺄까요? (만든 이미지는 서버에 남아요)': "Remove '{}' from the list? (Generated images remain on the server.)",
+
+    // --- 1.6 추가 ---
+    '자료에서 외형 태그 뽑기 (모델 1회)': 'Extract appearance tags from the material (1 model call)', '외형 태그 (영어). 비워 두면 AI 이미지를 만들 때 설명 → 카드·로어북 → 채팅 기록 순으로 근거를 찾아 자동으로 만들어요': 'Appearance tags (English). If empty, when generating an AI image the evidence is searched in this order: description → card/lorebook → chat history.',
+    'NPC 외형 근거를 찾는 중…': 'Looking for evidence of the NPC\'s appearance…', '외형 태그를 만들었어요 (근거: {})': 'Appearance tags created (evidence: {})', '카드·로어북·채팅 기록에서 이 인물의 외형 근거를 찾지 못했어요. 설명을 적어 주세요.': 'Could not find evidence of this character\'s appearance in the card, lorebook or chat history. Please write a description.', '외형 근거: {}': 'Appearance evidence: {}',
+    '저장된 외형 태그': 'Saved appearance tags', '카드·로어북': 'Card / lorebook', '채팅 기록': 'Chat history', '설명': 'Description', '자료 없음 (AI가 역할에 맞게 설계)': 'No material (the AI designs it to fit the role)',
+    '저장 공간': 'Storage', '이미지를 지울 때 서버 파일도 함께 지우기': 'Also delete the server file when removing an image', '다른 곳에서 쓰지 않는 VN Studio 이미지(user/images/vnstudio)만 지워요. 이 서버가 삭제를 지원하지 않으면 파일은 그대로 남아요.': 'Only VN Studio images (user/images/vnstudio) that are not used elsewhere are deleted. If this server does not support deletion, the file stays.', '쓰지 않는 표정·NPC 이미지 찾아서 정리': 'Find and clean up unused expression/NPC images', '저장된 이미지를 확인하는 중…': 'Checking saved images…',
+    '이 서버에서는 이미지 목록을 가져올 수 없어요. 확장 폴더(user/images/vnstudio)를 직접 확인해 주세요.': 'This server cannot list images. Please check the folder (user/images/vnstudio) yourself.', '전체 {}개 중 지울 미사용 표정·NPC 이미지는 없어요.': 'Of {} images in total, there are no unused expression/NPC images to delete.', 'vnstudio 폴더에 이미지 {}개가 있고, 그중 어디에도 쓰이지 않는 표정·NPC 이미지가 {}개예요.\n지울까요? (이벤트 CG와 영상은 다른 채팅에서 쓰일 수 있어 건드리지 않아요)': 'The vnstudio folder has {} images, {} of them are expression/NPC images used nowhere.\nDelete them? (Event CGs and videos may be used by other chats, so they are left alone.)', '{}개를 지웠어요': 'Deleted {}',
+    '모델 응답 기다리는 최대 시간 (초)': 'Maximum time to wait for the model (seconds)', '일상 모드 계획·장면 생성이 이 시간 안에 오지 않으면 이유와 함께 실패로 처리하고 다시 시도할 수 있어요.': 'If a daily-mode plan or scene does not arrive in this time, it is treated as failed with a reason and you can retry.', '생성 실패: {}': 'Generation failed: {}', '모델이 {}초 안에 답하지 않았어요. 연결 프로필·모델 상태를 확인하고 다시 시도해 주세요': 'The model did not answer within {} seconds. Check the connection profile / model and try again.', '모델 응답이 비어 있어요': 'The model reply was empty', '실패': 'Failed',
+    'SillyTavern 채팅창에서도 숨기기 (아래 태그 이름 + facts/status 등)': 'Also hide in the SillyTavern chat window (tag names below + facts/status, etc.)', '화면에서만 가려요. 저장된 대화와 모델에게 보내는 내용은 그대로예요. 짝이 안 맞는 태그(<small><facts></small></facts>)도 처리해요.': 'Only hidden on screen. The saved chat and what is sent to the model stay unchanged. Mismatched tags like <small><facts></small></facts> are handled too.',
+    'HTML/CSS 서식이 있는 메시지는 원본 서식 패널을 자동으로 열기': 'Automatically open the original-format panel for messages with HTML/CSS', '프리셋이 만드는 색·애니메이션·움직이는 이미지 상태창을 팝업 안 작은 창으로 볼 수 있어요. 해당 메시지가 있을 때만 상단에 </> 버튼이 나타나요.': 'Shows the colored, animated, moving-image status windows made by presets in a small window inside the popup. A </> button appears at the top only when such a message exists.',
+    '채팅 원본 서식 보기 (HTML/CSS 효과)': 'View original chat formatting (HTML/CSS effects)', '채팅 원본 서식': 'Original chat formatting', '다시 불러오기': 'Reload',
 
   };
   const EN_EXACT = new Map(), EN_PAT = [];
