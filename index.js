@@ -67,8 +67,8 @@
   const defaults = {
     outLang: 'ui', translateInput: false, keepLen: true, keepLenText: '',
     choiceCount: 4, choiceLen: 70, choiceP1: '', choiceP2: '', choiceP3: '', choiceP4: '', choiceExtra: '',
-    useSSLook: true, lookModel: 'gemini-2.5-flash', lookVision: false, stylePreset: 'ss', stylePresets: [], negative: '',
-    analyzePlaces: false, bgBlank: false, bgBlankColor: '#ffffff', bgBlankAuto: true, textH: 0, lpWidth: 0, fabPos: null, htmlPos: null, fabShow: true, llmTimeout: 150, deleteFiles: true, hideInChat: false, htmlAuto: false, lang: 'ko', devMode: false, hideBlocks: true, hideRegex: '', cutout: true, cutTol: 34, emosDefault: ['neutral', 'joy', 'sadness', 'anger', 'surprise', 'embarrassment'], enabled: true, fab: true, autoOpen: false, inject: true, choicesMode: 'both', eventEvery: 4,
+    useSSLook: true, lookModel: 'gemini-3.1-flash', lookVision: false, stylePreset: 'ss', stylePresets: [], negative: '',
+    analyzePlaces: false, bgBlank: false, bgBlankColor: '#ffffff', bgBlankAuto: true, textH: 0, lpWidth: 0, fabPos: null, htmlPos: null, fabShow: true, theme: 'sakura', spriteScale: 100, spriteY: 0, evText: true, followCount: 3, llmTimeout: 150, deleteFiles: true, hideInChat: false, htmlAuto: false, lang: 'ko', devMode: false, hideBlocks: true, hideYaml: true, hideRegex: '', cutout: true, cutTol: 34, emosDefault: ['neutral', 'joy', 'sadness', 'anger', 'surprise', 'embarrassment'], enabled: true, fab: true, autoOpen: false, inject: true, choicesMode: 'both', eventEvery: 4,
     useST: true, classify: true, useAvatars: true, autoSprite: true, spriteCap: 6, useSS: true, autoAnalyze: true, hideTags: '',
     autoBg: true, autoEventImg: true, autoEventVid: false, videoConfirm: true,
     style: 'visual novel background art, soft anime painterly style, clean lines, rich atmosphere, high detail',
@@ -97,13 +97,14 @@
     if (!extensionSettings[MODULE]) extensionSettings[MODULE] = structuredClone(defaults);
     const s = extensionSettings[MODULE];
     for (const k of Object.keys(defaults)) if (s[k] === undefined) s[k] = structuredClone(defaults[k]);
+    if (!s.m16) { s.m16 = true; if (s.choicesMode === 'choice') s.choicesMode = 'both'; if (s.lookModel === 'gemini-2.5-flash') s.lookModel = 'gemini-3.1-flash'; }      // 1.7: 선택지 아래에 직접 입력칸, 외형 추출 모델 3.1
     if (!s.m15) { s.m15 = true; s.autoOpen = false; s.lookVision = false; }   // 1.5: SillyTavern 채팅 중에 팝업이 저절로 뜨지 않게, 외형 추출은 장면 생성기 방식으로
     return s;
   }
   const saveSettings = () => ctx().saveSettingsDebounced();
   const tmpMeta = {
     aff: {}, day: 1, slot: 0, outfit: {}, loc: '', gallery: [], log: [], lastEvent: -99, mode: 'chat', hist: [], applied: {},
-    startDate: '', sched: {}, cal: {}, annivs: [], npcs: [], arc: '', weather: '', time: '', usedSS: [], lastSS: 0,
+    startDate: '', ms: {}, chatEvents: [], sched: {}, cal: {}, annivs: [], npcs: [], arc: '', weather: '', time: '', usedSS: [], lastSS: 0,
     dossier: {}, analyzed: {}, heartDone: {}, milestone: {}, plans: {}, nodes: {}, wish: '',
   };
   function M() {
@@ -276,14 +277,33 @@
   const RE_BLOCK_ALL = /\[VN\][\s\S]*?(\[\/VN\]|$)/gi;
   const COT_TAGS = ['think', 'thinking', 'thought', 'thoughts', 'reasoning', 'reason', 'cot', 'analysis', 'scratchpad', 'reflection', 'planning', 'details', 'inner_thoughts', 'thinking_process', 'thinkingprocess', 'status', 'statusblock', 'status_block', 'statuswindow', 'status_window', 'infoblock', 'info_block', 'uiblock', 'hud', 'panel', 'character_status', '상태창', '상태', '스탯', '정보창', 'style', 'script', 'facts', 'fact', 'infobox', 'charinfo', 'memo', 'tracker'];
   /* 프리셋의 CoT/생각 블록은 연출에서 빼고 본문만 남긴다 */
-  function stripCot(text) {
+  /* 같은 이름의 태그가 중첩돼 있어도 짝을 맞춰 통째로 지운다 (<div><div></div></div>). 닫는 태그가 없으면 여는 태그만 지운다 */
+  function removeElements(text, names) {
     let t = String(text || '');
+    for (const n of names) {
+      const re = new RegExp(`<${n}\\b[^>]*>|</${n}\\s*>`, 'gi'); let out = '', i = 0, depth = 0, start = -1, m;
+      while ((m = re.exec(t))) {
+        if (m[0][1] !== '/') { if (depth === 0) start = m.index; depth++; }
+        else if (depth > 0) { depth--; if (depth === 0) { out += t.slice(i, start); i = m.index + m[0].length; start = -1; } }
+      }
+      out += depth > 0 && start >= 0 ? t.slice(i, start) + t.slice(start).replace(new RegExp(`<${n}\\b[^>]*>`, 'i'), '') : t.slice(i);
+      t = out;
+    }
+    return t;
+  }
+  function stripCot(text) {
+    const vnKeep = []; let t = String(text || '').replace(RE_BLOCK_ALL, (m) => { vnKeep.push(m); return `\u0000VN${vnKeep.length - 1}\u0000`; });   // [VN] 블록은 YAML 숨기기에 걸리지 않게 먼저 빼 둔다
     const extra = String(S().hideTags || '').split(',').map((x) => x.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).filter(Boolean);
     const names = [...new Set([...COT_TAGS, ...extra])];
     if (S().hideBlocks !== false) {   // 상태창으로 쓰이는 코드블록 / HTML 블록 / [STATUS] 블록을 통째로 숨긴다
       t = t.replace(/```[\s\S]*?(```|$)/g, '').replace(/~~~[\s\S]*?(~~~|$)/g, '');
-      t = t.replace(/<(div|table|section|aside|pre|details|center|fieldset|ul)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '');
+      t = removeElements(t, ['div', 'table', 'section', 'aside', 'pre', 'details', 'center', 'fieldset', 'ul', 'svg', 'canvas']);
       t = t.replace(/\[(status|state|stats?|info|상태창?|스탯)\][\s\S]*?\[\/\1\]/gi, '');
+    }
+    if (S().hideYaml !== false) {      // key: value 줄이 3줄 이상 이어지는 YAML형 상태창을 숨긴다
+      const L = t.split('\n'), keep = [], isY = (l) => /^\s*(-\s+)?[\w가-힣 ._\-/]{1,28}:\s*\S/.test(l) || /^\s*-\s+\S/.test(l);
+      for (let i = 0; i < L.length;) { let j = i; while (j < L.length && isY(L[j])) j++; if (j - i >= 3) { i = j; continue; } if (j > i) { keep.push(...L.slice(i, j)); i = j; } else { keep.push(L[i]); i++; } }
+      t = keep.join('\n');
     }
     for (const line of String(S().hideRegex || '').split('\n').map((x) => x.trim()).filter(Boolean)) { try { t = t.replace(new RegExp(line, 'gim'), ''); } catch { /* 잘못된 정규식은 무시 */ } }
     for (const n of names) {
@@ -291,18 +311,20 @@
       t = t.replace(new RegExp(`^[\\s\\S]*?</${n}\\s*>`, 'i'), '');      // 여는 태그가 잘려 나간 경우
       t = t.replace(new RegExp(`<${n}\\b[^>]*>[\\s\\S]*$`, 'i'), '');     // 닫는 태그가 없는 경우
     }
-    return t;
+    return t.replace(/\u0000VN(\d+)\u0000/g, (m, i) => vnKeep[+i] || '');
   }
+  const unwrapQuotes = (s) => { const m = String(s).match(/^(["“「])([\s\S]*)(["”」])$/); return m && !/["“”「」]/.test(m[2]) ? m[2].trim() : String(s); };   // 전체를 감싼 한 쌍일 때만 벗긴다
+  const plainOf = (s) => String(s || '').replace(/<\/?[a-zA-Z][^>]*>/g, '').replace(/&lt;\/?[a-zA-Z][^&]*?&gt;/g, '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
   function parseBlock(mes) {
     const clean = stripCot(mes);
-    const out = { text: clean.replace(RE_BLOCK_ALL, '').replace(/\[LOC:[^\]]*\]/gi, '').trim(), choices: [], info: [] };
+    const out = { text: plainOf(clean.replace(RE_BLOCK_ALL, '').replace(/\[LOC:[^\]]*\]/gi, '')), choices: [], info: [] };
     const m = clean.match(RE_BLOCK);
     if (!m) return out;
     for (const raw of m[1].split('\n')) {
       const line = raw.trim();
       if (!line) continue;
       const ch = line.match(/^(\d)\s*[:.):]\s*(.+)$/);
-      if (ch) { out.choices.push(ch[2].replace(/^["“]|["”]$/g, '').trim()); continue; }
+      if (ch) { out.choices.push(unwrapQuotes(ch[2].trim())); continue; }
       const kv = line.match(/^([a-z_]+)\s*[:=]\s*(.*)$/i);
       if (!kv) continue;
       const k = kv[1].toLowerCase(), v = kv[2].trim();
@@ -684,8 +706,9 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
   async function geminiText(prompt, parts = [], label = '텍스트 (Gemini)') {
     const s = S(); if (!s.geminiKey.trim()) throw new Error('이미지 API 키가 없어요');
     const body = { contents: [{ role: 'user', parts: [...parts, { text: prompt }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 2048, thinkingConfig: { thinkingBudget: 0 } } };
-    const r = await fetch(apiUrl('generateContent', s.lookModel || 'gemini-2.5-flash'), { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': s.geminiKey.trim() }, body: JSON.stringify(body) });
-    const j = await r.json().catch(() => ({}));
+    const call = (m) => fetch(apiUrl('generateContent', m), { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': s.geminiKey.trim() }, body: JSON.stringify(body) });
+    let r = await call(s.lookModel || 'gemini-3.1-flash'), j = await r.json().catch(() => ({}));
+    if (!r.ok && (r.status === 404 || r.status === 400) && /not found|not supported|invalid model|unknown model/i.test(JSON.stringify(j)) && s.lookModel !== 'gemini-2.5-flash') { toastr.info(`외형 추출 모델 '${s.lookModel}'을 쓸 수 없어 gemini-2.5-flash로 대신 시도해요.`); r = await call('gemini-2.5-flash'); j = await r.json().catch(() => ({})); }
     if (!r.ok) { logUsage('text', label, 'fail'); throw new Error(`${r.status}: ${j?.error?.message || '요청 실패'}`); }
     const out = (j.candidates?.[0]?.content?.parts || []).map((x) => x.text || '').join('');
     logUsage('text', label, 'ok', { in: j.usageMetadata?.promptTokenCount || estTok(prompt), out: j.usageMetadata?.candidatesTokenCount || estTok(out) });
@@ -990,7 +1013,8 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
       <button data-act="dos" title="공략집" aria-label="공략집"><i class="fa-solid fa-heart"></i></button>
       <button data-act="sched" title="일정·캘린더" aria-label="일정과 캘린더"><i class="fa-solid fa-calendar-days"></i></button>
       <button data-act="log" title="기록 (대화 읽기)" aria-label="기록"><i class="fa-solid fa-scroll"></i></button>
-      <button data-act="html" class="vn-rich-btn" title="채팅 원본 서식 보기 (HTML/CSS 효과)" aria-label="채팅 원본 서식"><i class="fa-solid fa-code"></i></button>
+      <button data-act="html" class="vn-rich-btn" title="HTML/CSS 효과 보기" aria-label="HTML/CSS 효과"><i class="fa-solid fa-code"></i></button>
+      <button data-act="spr" title="캐릭터 크기·위치" aria-label="캐릭터 크기와 위치"><i class="fa-solid fa-up-right-and-down-left-from-center"></i></button>
       <button data-act="hide" title="화면 숨기기 (H)" aria-label="UI 숨기기"><i class="fa-solid fa-eye-slash"></i></button>
       <button data-act="modal" title="메뉴" aria-label="메뉴"><i class="fa-solid fa-bars"></i></button>
       <button data-act="mode" title="채팅 연동 ↔ 일상 모드" aria-label="모드 전환"><i class="fa-solid fa-book-open"></i><span class="vn-tl">채팅</span></button>
@@ -1012,11 +1036,12 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
       <div class="vn-input" id="vn-input"><input type="text" id="vn-in" autocomplete="off" placeholder="직접 말을 건네 보세요"><button data-act="send">보내기</button></div>
     </div>
   </div>
+  <div class="vn-sprpop vn-off" id="vn-sprpop"><label><span>크기</span><input type="range" min="40" max="170" data-vk="spriteScale"><output></output></label><label><span>위치</span><input type="range" min="-30" max="30" data-vk="spriteY"><output></output></label><div class="vn-prow"><button data-act="spr-reset">초기화</button><button data-act="spr-close">닫기</button></div></div>
   <div class="vn-event vn-off" id="vn-event"></div>
   <div class="vn-fade" id="vn-fade"><span></span></div>
-  <div class="vn-htmlpanel vn-off" id="vn-htmlpanel" role="dialog" aria-label="채팅 원본 서식">
-    <div class="vn-hp-head" id="vn-hp-head"><b>채팅 원본 서식</b><span class="grow"></span><button data-act="html-refresh" title="다시 불러오기" aria-label="다시 불러오기"><i class="fa-solid fa-rotate"></i></button><button data-act="html-close" title="닫기" aria-label="닫기"><i class="fa-solid fa-xmark"></i></button></div>
-    <iframe id="vn-hp-frame" sandbox="" referrerpolicy="no-referrer" title="채팅 원본 서식"></iframe>
+  <div class="vn-htmlpanel vn-off" id="vn-htmlpanel" role="dialog" aria-label="HTML/CSS 효과">
+    <div class="vn-hp-ctl"><button class="vn-hp-drag" data-act="html-drag" title="끌어서 옮기기" aria-label="옮기기"><i class="fa-solid fa-up-down-left-right"></i></button><button data-act="html-close" title="닫기" aria-label="닫기"><i class="fa-solid fa-xmark"></i></button></div>
+    <iframe id="vn-hp-frame" sandbox="" referrerpolicy="no-referrer" title="HTML/CSS 효과"></iframe>
   </div>
   <aside class="vn-logpanel vn-off" id="vn-logpanel" aria-label="기록">
     <div class="vn-lp-resize" id="vn-lp-resize" title="끌어서 너비 조절 (더블클릭: 기본)" aria-label="기록 패널 너비 조절"></div>
@@ -1054,6 +1079,8 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
       this.root.classList.toggle('dev-on', !!s.devMode);
       if (s.textH > 0) { this.root.style.setProperty('--vn-th', Math.round(s.textH) + 'px'); this.root.dataset.th = '1'; } else { this.root.style.removeProperty('--vn-th'); delete this.root.dataset.th; }
       if (s.lpWidth > 0) this.root.style.setProperty('--lpw', Math.round(s.lpWidth) + 'px'); else this.root.style.removeProperty('--lpw');
+      this.root.dataset.theme = s.theme || 'sakura'; document.getElementById('vn-fab')?.setAttribute('data-theme', s.theme || 'sakura');
+      this.root.style.setProperty('--spr-s', ((+s.spriteScale || 100) / 100).toFixed(2)); this.root.style.setProperty('--spr-y', String(+s.spriteY || 0));
       this.root.classList.toggle('bg-blank', !!s.bgBlank); this.root.style.setProperty('--vn-blank', s.bgBlankColor || '#ffffff');
     },
     q: (sel) => $q(sel, ui.root),
@@ -1327,8 +1354,10 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
   function renderLogPanel() {
     const b = ui.q('#vn-lp-body'); $$('#vn-logpanel [data-lp]').forEach((x) => x.classList.toggle('on', x.dataset.lp === st.lpTab));
     if (st.lpTab === 'chat') {
-      const msgs = (ctx().chat || []).filter((m) => m && !m.is_system && m.mes).slice(-150);
-      b.innerHTML = msgs.map((m) => { const tx = parseBlock(m.mes).text.replace(/[*_]/g, ''); return `<div class="vn-lp-msg ${m.is_user ? 'u' : ''}"><b>${esc(m.name)}</b><p>${esc(tx)}</p></div>`; }).join('') || '<p class="vn-hint">채팅이 아직 없어요.</p>';
+      const msgs = (ctx().chat || []).filter((m) => m && !m.is_system && m.mes && (m.is_user || storyOnly(m))).slice(-150);
+      const all = ctx().chat || [];
+      b.innerHTML = msgs.map((m) => { const tx = parseBlock(m.mes).text.replace(/[*_]/g, ''); return `<div class="vn-lp-msg ${m.is_user ? 'u' : ''}"><b>${esc(m.name)}</b><p>${esc(tx)}</p>${!m.is_user ? `<div class="vn-lp-rich" data-mi="${all.indexOf(m)}"></div>` : ''}</div>`; }).join('') || '<p class="vn-hint">채팅이 아직 없어요.</p>';
+      $$('.vn-lp-rich', b).slice(-40).forEach((host) => { try { const fx = effectsOf(richSource({ id: +host.dataset.mi })); if (!fx.blocks.length) { host.remove(); return; } host.attachShadow({ mode: 'open' }).innerHTML = `<style>:host{display:block;margin-top:6px;color:#f4eefc;font:15px/1.6 'Gowun Batang',serif}img,video,svg{max-width:100%}</style>${effectsDoc(fx)}`; } catch { host.remove(); } });
       delete b.dataset.last;
     } else {
       let key = '', h = '';
@@ -1342,17 +1371,44 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
   /* ================= 채팅 원본 서식 패널 (프리셋의 HTML/CSS 상태창·효과를 팝업 안에서 보기) =================
      SillyTavern이 이미 그려 둔 메시지를 격리된 iframe에 넣어요. CSS 애니메이션·색·움직이는 이미지는 그대로 나오고,
      스크립트는 보안을 위해 실행하지 않아요(JS로 움직이는 효과는 안 나와요). */
-  const hasRich = (mes) => /<style\b|style\s*=|<(div|table|details|section|marquee|font|center|svg|canvas|img|video|button)\b/i.test(String(mes || '').replace(RE_BLOCK_ALL, ''));
-  function richHtmlOf(turn) {
-    const el = turn?.id != null ? document.querySelector(`#chat .mes[mesid="${turn.id}"] .mes_text`) : null;
-    let h = el ? el.innerHTML : null;
-    if (h == null) { const m = (ctx().chat || [])[turn?.id]; h = m ? esc(String(m.mes)).replace(/\n/g, '<br>') : ''; }
-    return String(h).replace(RE_BLOCK_ALL, '');
+  const RICH_TAGS = new Set(['div', 'table', 'section', 'aside', 'center', 'svg', 'canvas', 'marquee', 'figure', 'details']);
+  const THINK_TAGS = 'think,thinking,thought,thoughts,reasoning,reason,cot,analysis,scratchpad,reflection,planning,inner_thoughts,thinking_process,memo,small,facts,fact,infobox,charinfo,tracker,status,statusblock,pre,code,script,iframe,object,embed,link,meta,base,form';
+  const THINK_RE = /think|thought|reason|cot|analysis|생각|추론|사고/i;
+  function sanitizeTree(root) {
+    root.querySelectorAll('script,iframe,object,embed,link,meta,base,form').forEach((e) => e.remove());
+    root.querySelectorAll('*').forEach((e) => { for (const a of [...e.attributes]) if (/^on/i.test(a.name) || /^\s*javascript:/i.test(a.value)) e.removeAttribute(a.name); });
+    return root;
   }
+  /* 메시지에서 'HTML/CSS 효과'만 뽑는다: 생각 블록·상태창 글·코드블록·일반 문장은 빼고, <style>과 꾸며진 블록(div/table/…, 애니메이션이 붙은 요소)만 남긴다 */
+  function effectsOf(html) {
+    const doc = new DOMParser().parseFromString('<body>' + String(html || '').replace(RE_BLOCK_ALL, '') + '</body>', 'text/html'), body = sanitizeTree(doc.body);
+    const styles = [...body.querySelectorAll('style')].map((s) => s.textContent); body.querySelectorAll('style').forEach((s) => s.remove());
+    body.querySelectorAll('details').forEach((d) => { if (THINK_RE.test(d.querySelector('summary')?.textContent || '')) d.remove(); });
+    body.querySelectorAll(THINK_TAGS).forEach((e) => { if (!e.querySelector?.('div,table,section,aside,svg,canvas')) e.remove(); });
+    const blocks = [], anim = /animation|transition|@keyframes|filter|blur|text-shadow|box-shadow|gradient|transform|position\s*:\s*(fixed|absolute)/i;
+    const isRich = (el) => RICH_TAGS.has(el.tagName.toLowerCase()) || anim.test(el.getAttribute('style') || '');
+    const walk = (el) => { for (const c of [...el.children]) { if (isRich(c)) blocks.push(c.outerHTML); else if (c.children.length) walk(c); } };
+    walk(body);
+    return { styles, blocks };
+  }
+  function richSource(turn) {
+    const el = turn?.id != null ? document.querySelector(`#chat .mes[mesid="${turn.id}"] .mes_text`) : null;
+    return el ? el.innerHTML : String((ctx().chat || [])[turn?.id]?.mes || '');
+  }
+  const hasRich = (mes) => { try { return effectsOf(mes).blocks.length > 0; } catch { return false; } };
+  /* SillyTavern 페이지에 있는 애니메이션(@keyframes)·사용자 CSS를 함께 가져와서 채팅창과 같은 효과가 나오게 한다 */
+  function pageCss() {
+    let css = '';
+    document.querySelectorAll('style').forEach((s) => { if (s.closest('#vn-root')) return; const tx = s.textContent || ''; if (s.id === 'custom-style' || /@keyframes/.test(tx)) css += tx.slice(0, 150000) + '\n'; });
+    return css.slice(0, 400000);
+  }
+  function effectsDoc(fx) { return `<style>${pageCss()}</style>${fx.styles.map((s) => `<style>${s}</style>`).join('')}${fx.blocks.join('')}`; }
   function openHtmlPanel(turn) {
     const p = ui.q('#vn-htmlpanel'), f = ui.q('#vn-hp-frame'); if (!p || !f) return;
+    let fx; try { fx = effectsOf(richSource(turn)); } catch { fx = { styles: [], blocks: [] }; }
+    if (!fx.blocks.length) { closeHtmlPanel(); return; }
     const pos = S().htmlPos; if (pos) { p.style.left = pos.x + 'px'; p.style.top = pos.y + 'px'; p.style.right = 'auto'; }
-    f.srcdoc = `<!doctype html><meta charset="utf-8"><style>:root{color-scheme:dark}html,body{margin:0}body{padding:10px 12px;background:transparent;color:#f4eefc;font:15px/1.7 'Gowun Batang','Noto Serif KR',serif}img,video,svg{max-width:100%}a{color:#ffc58f}</style>${richHtmlOf(turn)}`;
+    f.srcdoc = `<!doctype html><meta charset="utf-8"><style>:root{color-scheme:dark}html,body{margin:0}body{padding:6px 8px;color:#f4eefc;font:15px/1.7 'Gowun Batang','Noto Serif KR',serif}img,video,svg{max-width:100%}a{color:#ffc58f}</style>${effectsDoc(fx)}<style>html,body{background:transparent!important}</style>`;
     p.classList.remove('vn-off');
   }
   const closeHtmlPanel = () => ui.q('#vn-htmlpanel')?.classList.add('vn-off');
@@ -1365,12 +1421,12 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
     const src = entry.from === 'ss' ? '장면 생성기' : entry.from === 'gen' ? 'VN Studio' : '';
     el.innerHTML = `<div class="vn-ev-back" style="background-image:url('${esc(entry.url)}')"></div><div class="vn-ev-media"><div class="vn-ev-frame">${media}</div></div><div class="vn-ev-bar top"></div><div class="vn-ev-bar bot"></div>
       <div class="vn-ev-cap"><b>${esc(entry.title || '이벤트')}</b><span>${esc(entry.caption || '')}${src ? ` · ${src}` : ''}</span></div>
-      <div class="vn-ev-btns">${entry.video ? '' : '<button class="vn-pill ghost" data-act="ev-video">🎬 영상으로 만들기</button>'}<button class="vn-pill" data-act="ev-close">계속하기</button></div>`;
+      <div class="vn-ev-btns"><button class="vn-pill ghost" data-act="ev-text">${S().evText === false ? '글씨 켜기' : '글씨 끄기'}</button>${entry.video ? '' : '<button class="vn-pill ghost" data-act="ev-video">🎬 영상으로 만들기</button>'}<button class="vn-pill" data-act="ev-close">계속하기</button></div>`;
   }
   function openEvent(entry) {
     return new Promise((resolve) => {
       const el = ui.q('#vn-event'); st.viewEvt = entry; st.evtResolve = resolve;
-      renderEvent(entry);
+      renderEvent(entry); el.classList.toggle('hide-cap', S().evText === false);
       el.classList.remove('vn-off'); void el.offsetWidth; el.classList.add('on');
     });
   }
@@ -1520,13 +1576,14 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
     for (let d = 1; d <= days; d++) {
       const ms = Date.UTC(Y, Mo - 1, d), dn = dayOfUTC(ms), cal = meta.cal[dn], md = `${String(Mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`, an = annivsOn(md);
       const evs = cal?.events?.length || 0;
-      cells += `<button class="vn-cd ${dn === meta.day ? 'today' : ''} ${dn === st.calSel ? 'sel' : ''} ${dn < 1 ? 'pre' : ''}" data-act="cal-sel" data-day="${dn}"><i>${d}</i>${evs ? `<em>♥${evs}</em>` : ''}${an.length ? '<u>🎂</u>' : ''}${(meta.plans[dn] || cal?.plan) && !evs ? '<s>•</s>' : ''}</button>`;
+      cells += `<button class="vn-cd ${meta.mode === 'daily' && dn === meta.day ? 'today' : ''} ${dn === st.calSel ? 'sel' : ''} ${dn < 1 ? 'pre' : ''}" data-act="cal-sel" data-day="${dn}"><i>${d}</i>${evs ? `<em>♥${evs}</em>` : ''}${an.length ? '<u>🎂</u>' : ''}${(meta.plans[dn] || cal?.plan) && !evs ? '<s>•</s>' : ''}</button>`;
     }
     return `
       <div class="vn-row tight"><label>시작일</label><input type="date" data-act="start-date" value="${esc(meta.startDate)}"><span class="vn-hint">1일째 날짜 · 오늘 ${fmtDate(today)} (${meta.day}일째)</span></div>
       <div class="vn-calnav"><button class="vn-btn sm" data-act="cal-prev" aria-label="이전 달">◀</button><b>${Y}년 ${Mo}월</b><button class="vn-btn sm" data-act="cal-next" aria-label="다음 달">▶</button></div>
       <div class="vn-cal"><span class="vn-cw">일</span><span class="vn-cw">월</span><span class="vn-cw">화</span><span class="vn-cw">수</span><span class="vn-cw">목</span><span class="vn-cw">금</span><span class="vn-cw">토</span>${cells}</div>
       ${dayDetail(st.calSel)}
+      ${(meta.chatEvents || []).length ? `<details class="vn-more"><summary>채팅 모드 이벤트 (${meta.chatEvents.length})</summary>${meta.chatEvents.slice().reverse().map((e) => `<div class="vn-fact"><span>${esc(new Date(e.t).toLocaleDateString('ko-KR'))}</span><b>${esc(e.loc || '')} — ${esc(e.title || '')}</b></div>`).join('')}</details>` : ''}
       <details class="vn-more"><summary>기념일 (${meta.annivs.length})</summary>
         ${meta.annivs.map((a, i) => `<div class="vn-fact"><span>${esc(a.md)}</span><b>${esc(a.name)}</b><button class="vn-x" data-act="anniv-del" data-i="${i}" aria-label="삭제">✕</button></div>`).join('')}
         <div class="vn-row tight"><input type="text" id="vn-an" placeholder="이름 (예: 첫 만남)" style="flex:1 1 130px"><input type="text" id="vn-amd" placeholder="월-일 (03-14)" style="flex:0 1 110px"><button class="vn-btn sm" data-act="anniv-add">추가</button></div>
@@ -1807,14 +1864,14 @@ ${await gatherWorldContext()}`;
   function tabSet() {
     return `
       ${sec('언어 · 개발', `${selRow('lang', 'Language / 언어', [['ko', '한국어'], ['en', 'English']], '화면 문구와 모델이 쓰는 언어가 함께 바뀌어요. English로 하면 입력도 출력도 영어로 진행할 수 있어요.')}${chk('devMode', '개발자 모드', '이벤트가 왜 안 나오는지 확인하는 진단 탭이 생겨요 (이벤트 판단 기록, 강제 실행, 응답 원문, 지시문 보기).')}`)}
-      ${sec('진행', `${chk('enabled', 'VN Studio 사용')}${chk('autoOpen', '캐릭터가 답하면 팝업 자동으로 열기')}${chk('inject', '모델에게 [VN] 블록 규칙 보내기', '끄면 표정·장소·호감도·선택지가 자동으로 안 나와요.')}${chk('autoAnalyze', '기존 채팅이 있으면 처음 한 번 호감도·관계·정보 분석', '모델을 1회 호출해요. 채팅 내용이 연결된 모델로 전송돼요.')}${selRow('choicesMode', '입력 방식', [['both', '선택지 + 직접 입력'], ['choice', '선택지 우선'], ['free', '직접 입력만']])}`)}
-      ${sec('채팅 모드: 글상자에 안 보이게 숨기기', `${chk('hideInChat', 'SillyTavern 채팅창에서도 숨기기 (아래 태그 이름 + facts/status 등)', '화면에서만 가려요. 저장된 대화와 모델에게 보내는 내용은 그대로예요. 짝이 안 맞는 태그(&lt;small&gt;&lt;facts&gt;&lt;/small&gt;&lt;/facts&gt;)도 처리해요.')}${chk('htmlAuto', 'HTML/CSS 서식이 있는 메시지는 원본 서식 패널을 자동으로 열기', '프리셋이 만드는 색·애니메이션·움직이는 이미지 상태창을 팝업 안 작은 창으로 볼 수 있어요. 해당 메시지가 있을 때만 상단에 &lt;/&gt; 버튼이 나타나요.')}${chk('hideBlocks', '상태창·코드블록·HTML 블록 통째로 숨기기', '```로 감싼 블록, &lt;div&gt;/&lt;table&gt;/&lt;details&gt; 같은 HTML 블록, [STATUS]…[/STATUS]를 연출에서 빼요.')}<div class="vn-opt"><label class="vn-lbl">숨길 태그 이름 (쉼표로 구분)</label><input type="text" data-vk="hideTags" placeholder="예: mythink, 상태창"><p class="vn-opt-h">think, status, 상태창, details 등 흔한 태그는 이미 자동으로 숨겨요.</p></div><div class="vn-opt"><label class="vn-lbl">숨길 패턴 (정규식, 한 줄에 하나)</label><textarea rows="2" data-vk="hideRegex" placeholder="예: ^\\[.*?\\]$"></textarea></div>`)}
+      ${sec('진행', `${chk('enabled', 'VN Studio 사용')}${chk('autoOpen', '캐릭터가 답하면 팝업 자동으로 열기')}${chk('inject', '모델에게 [VN] 블록 규칙 보내기', '끄면 표정·장소·호감도·선택지가 자동으로 안 나와요.')}${chk('autoAnalyze', '기존 채팅이 있으면 처음 한 번 호감도·관계·정보 분석', '모델을 1회 호출해요. 채팅 내용이 연결된 모델로 전송돼요.')}${selRow('choicesMode', '입력 방식', [['both', '선택지 + 직접 입력 (선택지 아래에 입력칸)'], ['choice', '선택지만'], ['free', '직접 입력만']])}`)}
+      ${sec('채팅 모드: 글상자에 안 보이게 숨기기', `${chk('hideInChat', 'SillyTavern 채팅창에서도 숨기기 (아래 태그 이름 + facts/status 등)', '화면에서만 가려요. 저장된 대화와 모델에게 보내는 내용은 그대로예요. 짝이 안 맞는 태그(&lt;small&gt;&lt;facts&gt;&lt;/small&gt;&lt;/facts&gt;)도 처리해요.')}${chk('htmlAuto', 'HTML/CSS 효과가 있는 메시지는 효과 창을 자동으로 열기', '프리셋이 만드는 색·애니메이션·움직이는 이미지 효과만 작은 창에 따로 보여 줘요(생각·본문·상태창 글은 제외). 효과가 있는 메시지일 때만 상단에 &lt;/&gt; 버튼이 나타나고, 창 오른쪽 위에 마우스를 올리면 이동·닫기 버튼이 보여요.')}${chk('hideYaml', 'YAML형 상태창 줄(key: value가 3줄 이상 이어짐) 숨기기', '```로 감싸지 않은 상태창도 가려요. 대사가 "이름: 말" 형식이라 잘못 가려지면 끄세요.')}${chk('hideBlocks', '상태창·코드블록·HTML 블록 통째로 숨기기', '```로 감싼 블록, &lt;div&gt;/&lt;table&gt;/&lt;details&gt; 같은 HTML 블록, [STATUS]…[/STATUS]를 연출에서 빼요.')}<div class="vn-opt"><label class="vn-lbl">숨길 태그 이름 (쉼표로 구분)</label><input type="text" data-vk="hideTags" placeholder="예: mythink, 상태창"><p class="vn-opt-h">think, status, 상태창, details 등 흔한 태그는 이미 자동으로 숨겨요.</p></div><div class="vn-opt"><label class="vn-lbl">숨길 패턴 (정규식, 한 줄에 하나)</label><textarea rows="2" data-vk="hideRegex" placeholder="예: ^\\[.*?\\]$"></textarea></div>`)}
       ${sec('이벤트 씬', `${numRow('eventEvery', '이벤트 최소 간격 (메시지 수)', 2, 60)}${selRow('eventSrc', '장면 이미지', [['ss', '장면 생성기 새 장면 우선, 없으면 새로 생성'], ['gen', '항상 새로 생성'], ['ssonly', '장면 생성기 장면만 (생성 비용 0)']], L2(`발동 조건: ① 모델이 event: 를 낼 때(간격 적용) ② 호감도가 한 번에 ±4 이상 변하거나 하트 단계를 넘을 때 ③ 일상 모드의 하이라이트 장면 ④ 글상자 아래 "🎬 이 장면을 이벤트 씬으로" 버튼. ${M().lastEvent <= -90 ? '아직 이벤트가 한 번도 없었어요.' : `마지막 이벤트 후 ${sinceEvent()}개 메시지가 지났어요.`}`, `Triggers: ① the model emits event: (interval applies) ② closeness changes by ±4 or more at once, or a heart level is passed ③ a daily-mode highlight scene ④ the "🎬 Make this an event scene" button under the text box. ${M().lastEvent <= -90 ? 'No event has happened yet.' : `${sinceEvent()} messages since the last event.`}`))}${chk('autoEventImg', '이벤트 발생 시 CG 자동 준비')}${chk('autoEventVid', '이벤트 CG를 영상으로 자동 변환', '켜면 확인창 없이 요금이 나가요.')}${chk('videoConfirm', '수동 영상 생성 때 요금 확인창 띄우기')}${chk('useAvatars', 'CG 생성 시 캐릭터·페르소나 이미지를 참조로 보내기')}`)}
       ${sec('연동 · 이미지 생성 (API 요금 발생)', `${chk('useSS', '장면 생성기(Scene Studio) 연동', '장소 목록·지도·이미 만든 장면 이미지·화풍·외형 태그를 가져다 써요.')}${chk('autoBg', '배경이 없는 장소는 한 번만 자동 생성')}${chk('autoSprite', '고른 표정이 없으면 한 장씩 자동 생성')}${numRow('spriteCap', '표정 자동 생성 상한 (접속당)', 0, 60)}${numRow('llmTimeout', '모델 응답 기다리는 최대 시간 (초)', 30, 600, 10, '일상 모드 계획·장면 생성이 이 시간 안에 오지 않으면 이유와 함께 실패로 처리하고 다시 시도할 수 있어요.')}${numRow('imgGapSec', '이미지 요청 간격 (초)', 0, 60, 1, '429(요청 과다)가 뜨면 늘려 보세요. 429가 나면 자동으로 기다렸다가 다시 시도해요.')}${chk('cutout', '생성한 캐릭터 이미지의 배경 자동 제거 (투명 PNG)', '흰 배경으로 만든 뒤 가장자리에서부터 배경색만 지워요. 배경이 균일하지 않으면 원본을 그대로 저장해요.')}${numRow('cutTol', '배경 제거 민감도', 10, 80, 2, '값이 크면 배경을 더 많이 지우지만 인물 가장자리가 깎일 수 있어요.')}${chk('useST', 'SillyTavern 표정 스프라이트 사용')}${chk('classify', '[VN] 블록에 표정이 없으면 분류기로 추정')}`)}
-      ${sec('선택지 (CYOA)', `${numRow('choiceCount', '선택지 개수', 2, 4)}${numRow('choiceLen', '선택지 길이 (글자 수 안팎)', 20, 200, 5, '짧고 단조로운 선택지를 줄이려면 늘려 보세요. 행동과 대사를 함께 써요.')}${[1, 2, 3, 4].map((i) => `<div class="vn-opt"><label class="vn-lbl">${i}번 선택지 프롬프트</label><textarea rows="3" data-vk="choiceP${i}" placeholder="${esc(CHOICE_DEF[langKey()][i - 1])}"></textarea></div>`).join('')}<p class="vn-opt-h" style="margin-left:0">비워 두면 위 기본 문장(placeholder)을 써요. {{user}}와 {{char}}를 쓸 수 있어요. 채팅 모드와 일상 모드 모두에 적용돼요.</p><div class="vn-opt"><label class="vn-lbl">선택지 공통 추가 지시</label><textarea rows="2" data-vk="choiceExtra" placeholder="예: 매번 서로 다른 장소/소품을 활용할 것"></textarea></div>`)}
+      ${sec('선택지 (CYOA)', `${numRow('choiceCount', '선택지 개수', 2, 4)}${numRow('followCount', '일상 모드: 선택 후 이어지는 선택지 개수', 2, 4, 1, '처음 선택지(3~4개)를 고르면 이어지는 후속 선택지가 이 개수만큼 나와요. 모델이 적게 줄 수 있어 개수를 지정해 요청해요.')}${numRow('choiceLen', '선택지 길이 (글자 수 안팎)', 20, 200, 5, '짧고 단조로운 선택지를 줄이려면 늘려 보세요. 행동과 대사를 함께 써요.')}${[1, 2, 3, 4].map((i) => `<div class="vn-opt"><label class="vn-lbl">${i}번 선택지 프롬프트</label><textarea rows="3" data-vk="choiceP${i}" placeholder="${esc(CHOICE_DEF[langKey()][i - 1])}"></textarea></div>`).join('')}<p class="vn-opt-h" style="margin-left:0">비워 두면 위 기본 문장(placeholder)을 써요. {{user}}와 {{char}}를 쓸 수 있어요. 채팅 모드와 일상 모드 모두에 적용돼요.</p><div class="vn-opt"><label class="vn-lbl">선택지 공통 추가 지시</label><textarea rows="2" data-vk="choiceExtra" placeholder="예: 매번 서로 다른 장소/소품을 활용할 것"></textarea></div>`)}
       ${sec('응답 품질 · 언어', `${chk('keepLen', '내 입력이 짧아도 답변 길이·품질 유지', '모델에게 "이전 답변만큼 길고 풍부하게, 짧은 입력을 따라 줄어들지 말 것"을 항상 전달해요.')}<div class="vn-opt"><label class="vn-lbl">추가 품질 지시 (선택)</label><textarea rows="2" data-vk="keepLenText" placeholder="예: 최소 4문단, 감각 묘사와 인물의 속마음을 포함"></textarea></div>${selRow('outLang', '이야기 출력 언어', [['ui', '화면 언어와 같게'], ['ko', '한국어'], ['en', 'English'], ['chat', '채팅 기록을 따라감']], '기존 채팅이 영어여도 한국어를 고르면 모델이 한국어로 쓰도록 강하게 지시해요. 선택지와 상태 정보도 같은 언어예요.')}${chk('translateInput', '내가 다른 언어로 입력하면 출력 언어로 번역해서 전송 (모델 1회)', '예: 한국어로 입력했는데 출력 언어가 English이면 영어로 번역한 문장이 SillyTavern에 기록돼요.')}`)}
       ${sec('일상 모드', `<div class="vn-opt"><label class="vn-lbl">이벤트 씨앗 (한 줄에 하나)</label><textarea rows="5" data-vk="dailySeeds"></textarea></div><div class="vn-opt"><label class="vn-lbl">인카운터 씨앗 (한 줄에 하나)</label><textarea rows="5" data-vk="encSeeds"></textarea><p class="vn-opt-h">하루 계획을 만들 때 이 중 일부가 무작위로 들어가 혼자 있는 시간·NPC·우연한 만남을 풍성하게 해요.</p></div>${numRow('encCount', '하루에 넣을 인카운터 수', 0, 4)}`)}
-      ${sec('화면', `${chk('bgBlank', '배경 이미지 없이 단색으로 두기', '캐릭터 이미지에서 투명하게 안 지워진 부분(팔 사이 등)이 배경과 같은 색이라 투명처럼 보여요. 배경 생성과 장소 이미지는 그대로 두고 화면에서만 가려요.')}<div class="vn-opt"><div class="vn-orow"><label>단색 배경 색</label><input type="color" data-vk="bgBlankColor" style="flex:0 0 60px;height:30px;padding:0"></div></div>${chk('bgBlankAuto', '캐릭터 이미지의 배경색을 자동으로 맞추기', '생성한 원본 이미지(배경을 지우지 않은 것)의 모서리 색을 읽어 그 색으로 채워요.')}${numRow('typeSpeed', '글자 속도 (ms, 0=즉시)', 0, 100)}${numRow('fadeMs', '표정·배경 디졸브 (ms)', 0, 3000, 100)}<div class="vn-opt"><div class="vn-orow"><label>글자 크기 %</label><input type="range" min="80" max="150" data-vk="textSize"></div></div><div class="vn-opt"><div class="vn-orow"><label>대화창 불투명도 %</label><input type="range" min="40" max="100" data-vk="boxOpacity"></div></div>${selRow('logSide', '기록 패널 위치', [['right', '오른쪽'], ['left', '왼쪽']])}`)}
+      ${sec('화면', `${selRow('theme', '테마', [['sakura', '벚꽃 (기본)'], ['midnight', '한밤 (남색)'], ['forest', '숲 (초록)'], ['ember', '노을 (주황)'], ['lavender', '라벤더 (보라)'], ['mono', '흑백']], '화면 색 분위기가 바뀌어요.')}<div class="vn-opt"><div class="vn-orow"><label>캐릭터 이미지 크기 %</label><input type="range" min="40" max="170" data-vk="spriteScale"></div><p class="vn-opt-h" style="margin-left:0">화면 위의 ⤢ 버튼이나 Ctrl+마우스 휠로도 조절해요.</p></div><div class="vn-opt"><div class="vn-orow"><label>캐릭터 이미지 위치 (위·아래)</label><input type="range" min="-30" max="30" data-vk="spriteY"></div></div>${chk('bgBlank', '배경 이미지 없이 단색으로 두기', '캐릭터 이미지에서 투명하게 안 지워진 부분(팔 사이 등)이 배경과 같은 색이라 투명처럼 보여요. 배경 생성과 장소 이미지는 그대로 두고 화면에서만 가려요.')}<div class="vn-opt"><div class="vn-orow"><label>단색 배경 색</label><input type="color" data-vk="bgBlankColor" style="flex:0 0 60px;height:30px;padding:0"></div></div>${chk('bgBlankAuto', '캐릭터 이미지의 배경색을 자동으로 맞추기', '생성한 원본 이미지(배경을 지우지 않은 것)의 모서리 색을 읽어 그 색으로 채워요.')}${numRow('typeSpeed', '글자 속도 (ms, 0=즉시)', 0, 100)}${numRow('fadeMs', '표정·배경 디졸브 (ms)', 0, 3000, 100)}<div class="vn-opt"><div class="vn-orow"><label>글자 크기 %</label><input type="range" min="80" max="150" data-vk="textSize"></div></div><div class="vn-opt"><div class="vn-orow"><label>대화창 불투명도 %</label><input type="range" min="40" max="100" data-vk="boxOpacity"></div></div>${selRow('logSide', '기록 패널 위치', [['right', '오른쪽'], ['left', '왼쪽']])}`)}
       ${sec('화풍 (장면 생성기와 같은 방식)', `<div class="vn-opt"><div class="vn-orow"><label>프리셋</label><select id="vn-style-sel" data-act="style-sel"><option value="ss">장면 생성기와 동일 (연동)</option><option value="custom">직접 입력</option>${S().stylePresets.map((p) => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}</select></div><p class="vn-opt-h">${S().stylePreset === 'ss' ? (ssStyleText() ? `장면 생성기 화풍을 쓰는 중: ${esc(ssStyleText().slice(0, 140))}` : '장면 생성기에 저장된 화풍이 없어서 아래 직접 입력 값을 써요.') : '직접 입력 / 저장한 프리셋을 쓰는 중이에요.'}</p></div>
         <div class="vn-opt"><label class="vn-lbl">화풍 프롬프트 (CG·표정·인물)</label><textarea rows="4" data-vk="cgStyle"></textarea><div class="vn-orow" style="margin-top:6px"><input type="text" id="vn-style-name" placeholder="프리셋 이름" style="flex:1 1 140px"><button class="vn-btn sm" data-act="style-save">프리셋 저장</button><button class="vn-btn sm danger" data-act="style-del">프리셋 삭제</button></div></div>
         <div class="vn-opt"><label class="vn-lbl">제외 요소 (이런 건 그리지 않기)</label><input type="text" data-vk="negative" placeholder="예: text, watermark, extra fingers"></div>
@@ -1894,7 +1951,7 @@ ${await gatherWorldContext()}`;
     return (async () => {
       try {
         const e = await getEventEntry(turn);
-        if (e && meta.mode === 'chat') calAdd(meta.day, { slot: meta.slot, loc: turn.loc || '', title: e.title, aff: 0 });
+        if (e && meta.mode === 'chat') { (meta.chatEvents ||= []).push({ t: Date.now(), loc: turn.loc || '', title: e.title }); if (meta.chatEvents.length > 60) meta.chatEvents.shift(); saveMeta(); }      // 채팅 이벤트는 일상 달력에 섞지 않는다
         return e;
       } catch (e) { evtNote('이벤트 준비 실패: ' + (e.message || e)); toastr.error('이벤트 씬 준비 실패: ' + (e.message || e)); return null; }
     })();
@@ -1955,6 +2012,8 @@ ${await gatherWorldContext()}`;
   }
 
   /* ================= 채팅 연동 ================= */
+  const storyOnly = (msg) => !!msg && !msg.is_user && !msg.is_system && parseBlock(msg.mes).text.replace(/[\s.…·\-*_~`'"“”]/g, '').length > 1;      // 상태창만 따로 온 메시지는 이야기가 아니다
+  const lastStoryIndex = () => { const c = ctx().chat || []; for (let i = c.length - 1; i >= 0; i--) if (storyOnly(c[i])) return i; return -1; };
   async function turnFromMessage(msg, id, replay = false) {
     const b = parseBlock(msg.mes); let ch = castByName(msg.name) || activeChar();
     st.lastRaw = { id, mes: msg.mes, parsed: b };
@@ -1982,7 +2041,7 @@ ${await gatherWorldContext()}`;
       if (ms && !replay && (b.event || (ctx().chat || []).length - ms[2] > 6)) delete meta.milestone[ch.name];
     }
     const rawLoc = b.loc || ssCurrentName() || meta.loc, loc = ssFind(rawLoc)?.name || rawLoc;   // 장면 생성기의 장소 이름으로 통일
-    return { src: 'chat', id, rich: hasRich(msg.mes), ch, who: msg.name, loc, emo, emoSeq, outfit: b.outfit, time: b.time, weather: b.weather, event: b.event, strong, lines, choices: b.choices.slice(0, 4), noEvent: replay };
+    return { src: 'chat', id, hash: hash(msg.mes), rich: hasRich(msg.mes), ch, who: msg.name, loc, emo, emoSeq, outfit: b.outfit, time: b.time, weather: b.weather, event: b.event, strong, lines, choices: b.choices.slice(0, 4), noEvent: replay };
   }
   const ssCurrentName = () => { const m = ctx().chatMetadata?.minimap, p = m?.world?.places?.find((x) => x.id === m.current); return S().useSS && p ? p.name : ''; };
   async function onMessage(id) {
@@ -1990,18 +2049,19 @@ ${await gatherWorldContext()}`;
     const c = ctx(); const i = typeof id === 'number' ? id : c.chat.length - 1;
     const msg = c.chat[i]; if (!msg || msg.is_user || msg.is_system) return;
     if (M().mode === 'daily') return;
+    if (!storyOnly(msg)) return;      // 상태창만 따로 온 메시지는 연출하지 않는다
     try {
       const turn = await turnFromMessage(msg, i);
       if (st.pendingUser) { turn.lines.unshift({ k: 'user', t: st.pendingUser }); st.pendingUser = ''; }
       if (!st.open && s.autoOpen) ui.open();
-      if (st.open) playTurn(turn);
+      if (st.open) playTurn(turn); else st.deferred = turn;      // 닫혀 있는 동안 온 답변은 다음에 열 때 새 답변으로 보여 준다
     } catch (e) { console.warn('[VN] 메시지 처리 실패', e); showWaiting(false); }
   }
   async function replayLast() {
     const c = ctx(); if (!st.open) return;
     if (M().mode === 'daily') return playSlot();
-    const i = [...(c.chat || [])].map((m, idx) => [m, idx]).reverse().find(([m]) => m && !m.is_user && !m.is_system)?.[1];
-    if (i == null) { ui.q('#vn-text').textContent = '캐릭터와 대화를 시작하면 이 화면에 연출돼요.'; ui.hud(null); return; }
+    const i = lastStoryIndex();
+    if (i < 0) { ui.q('#vn-text').textContent = '캐릭터와 대화를 시작하면 이 화면에 연출돼요.'; ui.hud(null); return; }
     playTurn(await turnFromMessage(c.chat[i], i, true));
   }
   function sendToChat(text) {
@@ -2114,7 +2174,7 @@ Rules: "npcs" lists named people (not ${ch.name}, not ${c.name1}) who actually a
   /* ================= 일상 모드: 하루치 계획 + 분기 이벤트 + 선행 생성 ================= */
   const lineNorm = (arr) => (Array.isArray(arr) ? arr : []).map((l) => ({ k: l?.k === 'narr' ? 'narr' : 'say', t: String(l?.t ?? l ?? '').trim(), who: l?.who ? String(l.who).slice(0, 20) : '', emo: l?.emo ? String(l.emo).trim() : '' })).filter((l) => l.t).flatMap((l) => chunk(l.t).map((t) => ({ k: l.k, t, who: l.who, emo: l.emo })));
   function normChoice(c, avail, depth) {
-    return { t: String(c?.t || '').trim(), aff: clamp(parseInt(c?.aff, 10) || 0, -6, 6), emo: normEmo(c?.emo, avail), reply: lineNorm(c?.reply), choices: depth < 2 ? (Array.isArray(c?.choices) ? c.choices : []).slice(0, 3).map((x) => normChoice(x, avail, depth + 1)).filter((x) => x.t) : [] };
+    return { t: String(c?.t || '').trim(), aff: clamp(parseInt(c?.aff, 10) || 0, -6, 6), emo: normEmo(c?.emo, avail), reply: lineNorm(c?.reply), choices: depth < 2 ? (Array.isArray(c?.choices) ? c.choices : []).slice(0, clamp(+S().followCount || 3, 2, 4)).map((x) => normChoice(x, avail, depth + 1)).filter((x) => x.t) : [] };
   }
   function normNode(d, ch) {
     const avail = availEmos(ch);
@@ -2238,7 +2298,7 @@ ${next ? `[Next slot (${SLOTS[idx + 1]})] ${next.premise}. Only foreshadow thing
 Write the opening of this scene, then give choices.${slot.special ? `\nThis is the HIGHLIGHT of the day: build to a memorable moment and set "cg" to true with a vivid "cg_desc".` : ''}
 Return ONLY JSON:
 {"title":"short event title","emo":"${ch.name}'s expression label","outfit":"","aff":0,"lines":[{"k":"narr or say","who":"speaker name only if not ${npc ? npc.name : ch.name}","emo":"${ch.name}'s expression for this line (optional)","t":"1-2 sentences"}],"choices":[{"t":"what ${user} says or does: a vivid first-person line (up to ${+S().choiceLen || 70} chars)","aff":0,"emo":"","reply":[{"k":"say","who":"","t":"reaction"}],"choices":[{"t":"follow-up option","aff":0,"emo":"","reply":[{"k":"say","t":"reaction"}]}]}],"cg":false,"cg_desc":"English CG description, only if cg is true"}
-Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" = narration). Vary the expression ("emo") across the lines so the character reacts visibly. Give exactly ${nTop} top-level choices for ${user}, in this order and style: ${choiceBrief}. Each choice has 1-2 reply lines AND 2-3 follow-up "choices" of its own (each with 1-2 reply lines, no deeper nesting). The branches must truly differ in tone and outcome, and each follow-up must build on the choice before it. Never promise that "something good will happen later" unless it happens in this scene or is the next slot's premise. ${PERS_RULE(ch.name)} Set "cg" true only for a truly memorable moment. Top-level "aff" is 0 for a scene opening.`;
+Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" = narration). Vary the expression ("emo") across the lines so the character reacts visibly. Give exactly ${nTop} top-level choices for ${user}, in this order and style: ${choiceBrief}. Each choice has 1-2 reply lines AND exactly ${clamp(+S().followCount || 3, 2, 4)} follow-up "choices" of its own, each different in intent (each with 1-2 reply lines, no deeper nesting). The branches must truly differ in tone and outcome, and each follow-up must build on the choice before it. Never promise that "something good will happen later" unless it happens in this scene or is the next slot's premise. ${PERS_RULE(ch.name)} Set "cg" true only for a truly memorable moment. Top-level "aff" is 0 for a scene opening.`;
     return normNode(await jsonCall(prompt, 5000, `만남 장면 (${day}일째 ${SLOTS[idx]})`), ch);
   }
   function getNode(day, idx) {
@@ -2332,7 +2392,10 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
     playSlot();
   }
   async function toggleMode() {
-    const meta = M(); meta.mode = meta.mode === 'daily' ? 'chat' : 'daily'; saveMeta();
+    const meta = M(); meta.ms ||= {};
+    meta.ms[meta.mode] = { loc: meta.loc, time: meta.time, weather: meta.weather };         // 모드마다 장소·시간·날씨를 따로 기억한다
+    meta.mode = meta.mode === 'daily' ? 'chat' : 'daily';
+    const nx = meta.ms[meta.mode] || { loc: '', time: '', weather: '' }; meta.loc = nx.loc; meta.time = nx.time; meta.weather = nx.weather; saveMeta();
     st.turn = null; ui.hud(null); finishText(true);
     toastr.info(meta.mode === 'daily' ? '일상 모드: 채팅과 별개로 하루가 진행돼요. 하루 계획은 처음 한 번만 만들고, 다음 장면은 미리 준비돼요.' : '채팅 연동 모드로 돌아왔어요.');
     await replayLast();
@@ -2634,7 +2697,10 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
   function openVN() {
     if (!S().enabled) { toastr.info('VN Studio가 꺼져 있어요. 확장 프로그램 설정에서 켜 주세요.'); return; }
     ui.open(); ui.hud(null);
-    if (st.turn) { ui.hud(st.turn); showEnd(st.turn); } else replayLast();
+    const cm = M().mode === 'chat', idx = cm ? lastStoryIndex() : -1, latest = idx >= 0 ? (ctx().chat || [])[idx] : null;
+    if (cm && st.deferred && st.deferred.id === idx) { const d = st.deferred; st.deferred = null; showWaiting(false); playTurn(d); }      // 창을 닫은 사이에 온 새 답변
+    else if (cm && st.turn && !(st.turn.src === 'chat' && st.turn.id === idx && st.turn.hash === hash(latest?.mes))) { showWaiting(false); replayLast(); }   // 보던 장면이 최신이 아니면 최신으로 맞춘다
+    else if (st.turn) { showWaiting(false); ui.hud(st.turn); showEnd(st.turn); } else replayLast();
     setTimeout(() => { onboardSprites().then(autoAnalyze).catch((e) => console.warn('[VN]', e)); }, 800);
   }
   function bindUI() {
@@ -2644,12 +2710,15 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
       root.dataset.size = (r.height < 520 || r.width < 520) ? 'xs' : (r.height < 700 || r.width < 760) ? 'sm' : 'md'; scrollText(); };
     if (window.ResizeObserver) { new ResizeObserver(fit).observe(ui.q('#vn-stage')); new ResizeObserver(() => { if (st.stick) ui.q('#vn-text').scrollTop = ui.q('#vn-text').scrollHeight; }).observe(ui.q('#vn-box')); }
     window.addEventListener('resize', fit); fit(); ui.fit = fit;
-    // 원본 서식 패널 끌어서 옮기기
-    const hh = ui.q('#vn-hp-head');
+    const sprOut = () => { const pp = ui.q('#vn-sprpop'); $$('label', pp).forEach((l) => { const i = l.querySelector('input'), o = l.querySelector('output'); if (i && o) o.textContent = i.dataset.vk === 'spriteScale' ? i.value + '%' : i.value; }); };
+    ui.q('#vn-sprpop').addEventListener('input', sprOut);
+    ui.q('#vn-stage').addEventListener('wheel', (e) => { if (!e.ctrlKey && !e.altKey) return; e.preventDefault(); const s = S(); s.spriteScale = clamp((+s.spriteScale || 100) + (e.deltaY < 0 ? 5 : -5), 40, 170); saveSettings(); ui.applyLook(); }, { passive: false });   // Ctrl+휠: 캐릭터 크기
+    // 효과 패널 끌어서 옮기기 (마우스를 올리면 오른쪽 위에 나타나는 손잡이)
+    const hh = ui.q('.vn-hp-drag');
     hh.addEventListener('pointerdown', (e) => {
-      if (e.target.closest('button')) return; e.preventDefault(); hh.setPointerCapture?.(e.pointerId);
+      e.preventDefault(); hh.setPointerCapture?.(e.pointerId);
       const pn = ui.q('#vn-htmlpanel'), r = pn.getBoundingClientRect(), sr = ui.q('#vn-stage').getBoundingClientRect(), dx = e.clientX - r.left, dy = e.clientY - r.top;
-      const mv = (ev) => { const x = clamp(ev.clientX - dx - sr.left, 0, sr.width - 80), y = clamp(ev.clientY - dy - sr.top, 0, sr.height - 40); pn.style.left = x + 'px'; pn.style.top = y + 'px'; pn.style.right = 'auto'; S().htmlPos = { x: Math.round(x), y: Math.round(y) }; };
+      const mv = (ev) => { const x = clamp(ev.clientX - dx - sr.left, 0, sr.width - 60), y = clamp(ev.clientY - dy - sr.top, 0, sr.height - 40); pn.style.left = x + 'px'; pn.style.top = y + 'px'; pn.style.right = 'auto'; S().htmlPos = { x: Math.round(x), y: Math.round(y) }; };
       const up = () => { hh.removeEventListener('pointermove', mv); hh.removeEventListener('pointerup', up); saveSettings(); };
       hh.addEventListener('pointermove', mv); hh.addEventListener('pointerup', up);
     });
@@ -2690,9 +2759,11 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
         if (act === 'modal-close') return ui.q('#vn-modal').classList.add('vn-off');
         if (act === 'hide') { root.classList.toggle('vn-uihide'); return; }
         if (act === 'log') return toggleLog();
+        if (act === 'spr') { const pp = ui.q('#vn-sprpop'); pp.classList.toggle('vn-off'); if (!pp.classList.contains('vn-off')) { fillInputs(pp); sprOut(); } return; }
+        if (act === 'spr-close') return ui.q('#vn-sprpop').classList.add('vn-off');
+        if (act === 'spr-reset') { S().spriteScale = 100; S().spriteY = 0; saveSettings(); ui.applyLook(); fillInputs(ui.q('#vn-sprpop')); sprOut(); return; }
         if (act === 'html') { if (htmlPanelOpen()) return closeHtmlPanel(); return openHtmlPanel(st.turn); }
         if (act === 'html-close') return closeHtmlPanel();
-        if (act === 'html-refresh') return openHtmlPanel(st.turn);
         if (act === 'collapse') { const b = ui.q('#vn-box'); b.classList.toggle('min'); a.firstElementChild.className = b.classList.contains('min') ? 'fa-solid fa-chevron-up' : 'fa-solid fa-chevron-down'; return; }
         if (act === 'cancel-wait') return cancelWait();
         if (act === 'txt-up' || act === 'txt-down') { const x = ui.q('#vn-text'); x.scrollBy({ top: (act === 'txt-up' ? -1 : 1) * Math.max(40, x.clientHeight * 0.8), behavior: 'smooth' }); st.stick = false; setTimeout(() => { st.stick = x.scrollHeight - x.scrollTop - x.clientHeight < 36; }, 400); return; }
@@ -2705,6 +2776,7 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
         if (act === 'retry') return M().mode === 'daily' ? playSlot(true) : replayLast();
         if (act === 'make-evt') return manualEvent();
         if (act === 'ev-close') return closeEvent();
+        if (act === 'ev-text') { const s = S(); s.evText = s.evText === false; saveSettings(); ui.q('#vn-event').classList.toggle('hide-cap', s.evText === false); a.textContent = s.evText === false ? trMsg('글씨 켜기') : trMsg('글씨 끄기'); return; }
         if (act === 'ev-video') { const en = st.viewEvt; if (!en) return; return makeVideo(en).then((v) => { if (v && st.viewEvt === en) renderEvent(en); }); }
         if (act === 'cancel-vid') {
           if (st.genBusy) { st.genStop = true; ui.status('중지하는 중… (진행 중인 한 장은 끝까지 기다려요)'); return; }
@@ -2976,6 +3048,15 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
     'HTML/CSS 서식이 있는 메시지는 원본 서식 패널을 자동으로 열기': 'Automatically open the original-format panel for messages with HTML/CSS', '프리셋이 만드는 색·애니메이션·움직이는 이미지 상태창을 팝업 안 작은 창으로 볼 수 있어요. 해당 메시지가 있을 때만 상단에 </> 버튼이 나타나요.': 'Shows the colored, animated, moving-image status windows made by presets in a small window inside the popup. A </> button appears at the top only when such a message exists.',
     '채팅 원본 서식 보기 (HTML/CSS 효과)': 'View original chat formatting (HTML/CSS effects)', '채팅 원본 서식': 'Original chat formatting', '다시 불러오기': 'Reload',
 
+    // --- 1.7 추가 ---
+    'HTML/CSS 효과 보기': 'View HTML/CSS effects', 'HTML/CSS 효과': 'HTML/CSS effects', '끌어서 옮기기': 'Drag to move', '옮기기': 'Move', '글씨 끄기': 'Hide text', '글씨 켜기': 'Show text',
+    'HTML/CSS 효과가 있는 메시지는 효과 창을 자동으로 열기': 'Automatically open the effect window for messages with HTML/CSS effects', '프리셋이 만드는 색·애니메이션·움직이는 이미지 효과만 작은 창에 따로 보여 줘요(생각·본문·상태창 글은 제외). 효과가 있는 메시지일 때만 상단에 </> 버튼이 나타나고, 창 오른쪽 위에 마우스를 올리면 이동·닫기 버튼이 보여요.': 'Shows only the colors, animations and moving images made by presets in a small separate window (thinking, story text and status text are excluded). A </> button appears at the top only for messages with effects, and hovering the top-right of the window reveals move/close buttons.',
+    'YAML형 상태창 줄(key: value가 3줄 이상 이어짐) 숨기기': 'Hide YAML-style status lines (3 or more key: value lines in a row)', '```로 감싸지 않은 상태창도 가려요. 대사가 "이름: 말" 형식이라 잘못 가려지면 끄세요.': 'Also hides status blocks not wrapped in ```. Turn this off if dialogue in a "Name: text" format gets hidden by mistake.',
+    '캐릭터 크기·위치': 'Character size & position', '캐릭터 크기와 위치': 'Character size and position', '크기': 'Size', '위치': 'Position', '초기화': 'Reset', '테마': 'Theme', '벚꽃 (기본)': 'Sakura (default)', '한밤 (남색)': 'Midnight (navy)', '숲 (초록)': 'Forest (green)', '노을 (주황)': 'Sunset (orange)', '라벤더 (보라)': 'Lavender (purple)', '흑백': 'Monochrome', '화면 색 분위기가 바뀌어요.': 'Changes the color mood of the screen.',
+    '캐릭터 이미지 크기 %': 'Character image size %', '캐릭터 이미지 위치 (위·아래)': 'Character image position (up/down)', '화면 위의 ⤢ 버튼이나 Ctrl+마우스 휠로도 조절해요.': 'You can also adjust it with the ⤢ button on screen or Ctrl + mouse wheel.',
+    '일상 모드: 선택 후 이어지는 선택지 개수': 'Daily mode: number of follow-up choices', '처음 선택지(3~4개)를 고르면 이어지는 후속 선택지가 이 개수만큼 나와요. 모델이 적게 줄 수 있어 개수를 지정해 요청해요.': 'After you pick one of the first choices (3–4), this many follow-up choices appear. The model may give fewer, so the count is requested explicitly.',
+    '선택지 + 직접 입력 (선택지 아래에 입력칸)': 'Choices + typing (input box under the choices)', '선택지만': 'Choices only', '채팅 모드 이벤트 ({})': 'Chat-mode events ({})', '외형 추출 모델 \'{}\'을 쓸 수 없어 gemini-2.5-flash로 대신 시도해요.': "The appearance extraction model '{}' is unavailable, trying gemini-2.5-flash instead.",
+
   };
   const EN_EXACT = new Map(), EN_PAT = [];
   for (const [k, v] of Object.entries(EN)) {
@@ -3046,6 +3127,7 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
       if (k === 'lang') { applyLang(); ui.hud(st.turn); i18nAll(); if (st.open) renderModal(); refreshInject(); }
       if (k === 'devMode' && !el.checked && st.tab === 'dev') st.tab = 'set';
       if (k === 'enabled' && !el.checked && st.open) ui.close();
+      if (k === 'theme') ui.applyLook();
       if (k === 'bgBlank' || k === 'bgBlankColor' || k === 'bgBlankAuto') matchBlank(st.lastSprite?.url, st.lastSprite?.kind);
       if ((k === 'useSSLook' || k === 'useSS') && st.open) renderModal();
     };
@@ -3054,7 +3136,7 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
 
     ui.build(); bindUI(); i18nWatch(ui.root); i18nWatch(document.getElementById('vn-drawer')); i18nAll();
     const fab = document.createElement('button'); fab.id = 'vn-fab'; fab.title = 'VN Studio 열기 (끌어서 옮기기)'; fab.setAttribute('aria-label', 'VN Studio 열기'); fab.innerHTML = '<i class="fa-solid fa-heart"></i>';
-    document.body.appendChild(fab);
+    document.body.appendChild(fab); ui.applyLook();
     const placeFab = () => { const p = S().fabPos || { r: 14, b: 96 }; fab.style.right = clamp(p.r, 4, Math.max(4, window.innerWidth - 44)) + 'px'; fab.style.bottom = clamp(p.b, 4, Math.max(4, window.innerHeight - 44)) + 'px'; };
     placeFab(); window.addEventListener('resize', placeFab);
     fab.addEventListener('pointerdown', (e) => {   // 눌러서 열기 / 끌어서 옮기기
