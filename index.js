@@ -1498,6 +1498,7 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
         <div class="vn-dos-picbtns">${fileInput('npc-up', '', false, '이미지 올리기')}<button class="vn-btn" data-act="npc-gen">AI로 만들기</button>${sel.img ? '<button class="vn-btn" data-act="npc-cut">✂ 배경 제거</button><button class="vn-btn" data-act="npc-imgdel">이미지 삭제</button>' : ''}</div></div>
         <div class="vn-npced-f">
           <div class="vn-row tight"><input type="text" data-act="npc-field" data-f="name" value="${esc(sel.name)}" placeholder="이름" style="flex:1 1 110px"><input type="text" data-act="npc-field" data-f="role" value="${esc(sel.role || '')}" placeholder="역할 / 관계" style="flex:1 1 90px"></div>
+          ${S().useSS && ssWorld()?.places?.length ? `<div class="vn-row tight"><label>지도 위치</label><select data-act="npc-place" data-name="${esc(sel.name)}" style="flex:1 1 140px">${placeOptions(npcMarker(sel.name)?.place, '위치 모름')}</select></div>` : ''}
           <textarea rows="2" data-act="npc-field" data-f="desc" placeholder="설명 (외형·성격, AI 이미지 생성에도 쓰여요)">${esc(sel.desc || '')}</textarea>
           <textarea rows="2" data-act="npc-field" data-f="look" placeholder="외형 태그 (영어). 비워 두면 AI 이미지를 만들 때 설명 → 카드·로어북 → 채팅 기록 순으로 근거를 찾아 자동으로 만들어요">${esc(sel.look || '')}</textarea>
           <div class="vn-row tight"><button class="vn-btn sm" data-act="npc-look">자료에서 외형 태그 뽑기 (모델 1회)</button></div>
@@ -1676,6 +1677,87 @@ ${await gatherWorldContext()}`;
   const PLACE_KINDS = { city: '도시', town: '마을·구역', inn: '여관·숙소', shop: '상점', food: '식당·카페', smith: '대장간', temple: '신전·교회', school: '학교', home: '집', castle: '성·궁전', gate: '문·다리', dungeon: '던전·동굴', nature: '숲·공원', water: '강·호수·바다', building: '건물', other: '기타' };
   const hasXY = (p) => p.x != null && p.y != null && !Number.isNaN(+p.x) && !Number.isNaN(+p.y);
   const placeById = (id) => ssWorld()?.places.find((p) => p.id === id);
+  /* ----- 지도 아이콘 · NPC 위치 · 지도 이미지 생성 ----- */
+  const KIND_ICON = { city: '🏙️', town: '🏘️', inn: '🛏️', shop: '🛍️', food: '🍽️', smith: '⚒️', temple: '⛩️', school: '🏫', home: '🏠', castle: '🏰', gate: '🚪', dungeon: '🕳️', nature: '🌳', water: '🌊', building: '🏢', other: '📍' };
+  const NAME_ICONS = [
+    [/침실|bed ?room|^room$|내 방|방$/i, '🛏️'], [/부엌|주방|kitchen/i, '🍳'], [/욕실|화장실|목욕|온천|bath|toilet/i, '🛁'], [/거실|living/i, '🛋️'],
+    [/정원|마당|garden|yard/i, '🌷'], [/카페|cafe|coffee|식당|restaurant|술집|tavern|\bbar\b/i, '☕'], [/도서관|library/i, '📚'], [/병원|의무실|clinic|hospital/i, '🏥'],
+    [/학교|교실|school|classroom/i, '🏫'], [/신전|교회|성당|church|temple|shrine/i, '⛩️'], [/상점|가게|시장|shop|store|market/i, '🛍️'], [/대장간|smith|forge/i, '⚒️'],
+    [/성$|궁전|castle|palace/i, '🏰'], [/숲|공원|forest|woods|park/i, '🌳'], [/강$|강가|호수|바다|해변|lake|river|\bsea\b|beach/i, '🌊'], [/던전|동굴|dungeon|cave/i, '🕳️'],
+    [/문$|다리|gate|bridge/i, '🚪'], [/옥상|roof/i, '🌇'], [/지하|basement|cellar/i, '🪜'], [/복도|hall|corridor/i, '🚪'],
+  ];
+  /* 종류가 정해져 있으면 그 아이콘, "기타"/비어 있으면 이름에서 짐작한다 */
+  function placeIcon(p) {
+    if (p?.kind && p.kind !== 'other' && KIND_ICON[p.kind]) return KIND_ICON[p.kind];
+    for (const [re, ic] of NAME_ICONS) if (re.test(String(p?.name || '').trim())) return ic;
+    return KIND_ICON[p?.kind] || KIND_ICON.other;
+  }
+  const MARKER_ICON = { user: '🙋', char: '💗', npc: '🧑', enemy: '👹', quest: '❗' };
+  const sameName = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+  const npcMarker = (name) => (ssWorld()?.markers || []).find((m) => m.type === 'npc' && sameName(m.name, name));
+  function setNpcPlace(name, placeId) {
+    const w = ensureWorld(); let m = npcMarker(name);
+    if (!placeId) { if (m) w.markers = w.markers.filter((x) => x !== m); }
+    else if (m) m.place = placeId;
+    else w.markers.push({ id: uid(), type: 'npc', name: String(name).trim(), place: placeId });
+    saveMeta();
+  }
+  /* 건물 아래에 방이 오도록 정렬한 장소 목록 (선택 상자용) */
+  function orderedPlaces() {
+    const ps = ssWorld()?.places || [], out = [];
+    for (const r of ps.filter((p) => !p.parent || !placeById(p.parent))) { out.push([r, 0]); ps.filter((c) => c.parent === r.id).forEach((c) => out.push([c, 1])); }
+    return out;
+  }
+  const placeOptions = (selId, noneLabel) => `<option value="">${esc(noneLabel)}</option>${orderedPlaces().map(([p, d]) => `<option value="${esc(p.id)}" ${p.id === selId ? 'selected' : ''}>${d ? '　↳ ' : ''}${esc(placeIcon(p))} ${esc(p.name)}</option>`).join('')}`;
+  async function locateNpcsVN() {
+    const w = ensureWorld(), meta = M(), npcs = meta.npcs.filter((n) => !npcMarker(n.name));
+    if (!meta.npcs.length) throw new Error('NPC가 없어요. NPC 탭에서 먼저 추가하거나 분석해 주세요.');
+    if (!w.places.length) throw new Error('장소가 없어요. 먼저 장소·마커 분석을 해 주세요.');
+    if (!npcs.length) return 0;
+    const places = orderedPlaces().map(([p, d]) => `${d ? '  ' : ''}${p.name}${p.parent ? ` (inside ${placeById(p.parent)?.name})` : ''}`).join('\n');
+    const list = npcs.map((n) => `- ${n.name}${n.role ? ` (${n.role})` : ''}${n.desc ? `: ${String(n.desc).slice(0, 100)}` : ''}`).join('\n');
+    const prompt = `You are a story analyst. Do NOT roleplay. Decide where each NPC below is most likely to be found on the map right now (use the recent chat first, then their role and the lorebook).
+Reply with ONLY one JSON object, no commentary: {"npcs":[{"name":"exact NPC name","place":"exact name from the place list, or null if there is no basis"}]}
+Never invent places. If unsure, use null.
+[Places]
+${places}
+[NPCs]
+${list}
+
+${await gatherWorldContext()}`;
+    const data = parseJSON(await llm(prompt, 2048, 'NPC 위치 찾기'));
+    if (!Array.isArray(data?.npcs)) throw new Error('결과를 읽지 못했어요. 다시 시도해 주세요.');
+    let n = 0;
+    for (const it of data.npcs) {
+      const npc = npcs.find((x) => sameName(x.name, it?.name)), p = it?.place ? findPlaceByName(it.place) : null;
+      if (npc && p) { setNpcPlace(npc.name, p.id); n++; }
+    }
+    return n;
+  }
+  const MAP_RATIOS = { '1:1': 1, '4:3': 4 / 3, '16:9': 16 / 9, '3:4': 3 / 4 };
+  async function generateMapVN(scope) {
+    const w = ssWorld(); if (!w) throw new Error('채팅을 먼저 열어 주세요');
+    autoLayoutPlaces();
+    const parent = scope === 'world' ? null : placeById(scope), kids = w.places.filter((p) => (p.parent || 'world') === scope && hasXY(p));
+    if (!kids.length) throw new Error('이 지도에 놓을 장소가 없어요. 장소를 먼저 추가해 주세요.');
+    const aspect = MAP_RATIOS[st.mapRatio] ? st.mapRatio : '1:1', look = String(w.look || '').trim();
+    const brief = (p) => String(p.visual || p.desc || '').replace(/\s+/g, ' ').slice(0, 140);
+    const list = kids.map((p) => `- "${p.name}" (${PLACE_KINDS[p.kind] ? p.kind : 'place'}): ${Math.round(p.x)}% from the left, ${Math.round(p.y)}% from the top${brief(p) ? `. ${brief(p)}` : ''}`).join('\n');
+    const what = parent
+      ? `the INSIDE of "${parent.name}"${brief(parent) ? ` (${brief(parent)})` : ''}, drawn as a cutaway floor plan where each room or area below is a clearly separate space`
+      : 'the whole story world, like a game overview map, with each location below as a distinct landmark';
+    const prompt = `Generate one image. ${styleBg()}. A top-down illustrated MAP of ${what}.
+Place every location at the given position (x = distance from the left edge, y = distance from the top edge, as a percentage of the image) so the relative layout matches:
+${list}
+Connect them with natural paths, roads or corridors, and fill the whole image edge to edge with terrain or floor.${look ? ` World atmosphere: ${look}.` : ''}
+IMPORTANT: absolutely no text, letters, numbers, labels, signs with writing, legend, compass, UI, border, frame or watermark. No people and no characters. Do not draw pins or markers; they are added separately.`;
+    const url = await geminiGenerate(prompt, [], aspect, 'vnmap_', parent ? `지도 · ${parent.name} 내부` : '지도 · 세계');
+    const dim = await new Promise((ok) => { const im = new Image(); im.onload = () => ok(im.width / Math.max(1, im.height)); im.onerror = () => ok(MAP_RATIOS[aspect]); im.src = url; });
+    const old = (w.maps ||= {})[scope];
+    w.maps[scope] = { url, ratio: +dim.toFixed(3) || 1, ai: true }; saveMeta();
+    if (old?.url && old.url !== url && (old.ai || old.user)) dropImage(old.url);
+    return url;
+  }
   function rootOfPlace(p) { let q = p, n = 0; while (q?.parent && placeById(q.parent) && n++ < 10) q = placeById(q.parent); return q; }
   /* 지도는 2단계만: 건물(마을) > 내부 장소(방·구역). 더 깊은 장소는 건물 바로 아래로 올려 하나의 내부 지도로 합친다 */
   function flattenPlaces() {
@@ -1721,12 +1803,22 @@ ${await gatherWorldContext()}`;
     const parentOpts = (p) => `<option value="">세계 지도에 표시</option>${w.places.filter((q) => q.id !== p.id && !(q.parent && placeById(q.parent)?.parent)).map((q) => `<option value="${esc(q.id)}" ${p.parent === q.id ? 'selected' : ''}>${esc(q.name)} 안</option>`).join('')}`;
     const kindOpts = (k) => Object.entries(PLACE_KINDS).map(([v, n]) => `<option value="${v}" ${k === v ? 'selected' : ''}>${n}</option>`).join('');
     const nested = w.places.filter((p) => p.parent && placeById(p.parent)?.parent).length;
-    const mks = w.markers || [];
+    const mks = w.markers || [], mkf = st.mapMk || 'all';
+    const pinHtml = (p) => `<button class="vn-pin ${p.name === st.mapSel ? 'sel' : ''} ${p.id === cur?.id ? 'cur' : ''}" style="left:${p.x}%;top:${p.y}%" data-act="map-pick" data-id="${esc(p.id)}" data-name="${esc(p.name)}" title="${esc(p.name)}"><i class="vn-ic">${placeIcon(p)}</i><span>${esc(p.name)}</span></button>`;
+    /* 마커(NPC·캐릭터·나 …)는 그 장소의 핀 위에 이름표로 표시한다. 방 안에 있으면 그 방이 속한 건물 핀에 붙는다 */
+    const anchorOf = (m) => { let q = placeById(m.place), n = 0; while (q && n++ < 10) { if (kids.includes(q)) return q; q = q.parent ? placeById(q.parent) : null; } return null; };
+    const byPin = new Map();
+    if (mkf !== 'off') for (const m of mks) { if (mkf === 'npc' && m.type !== 'npc') continue; const a = anchorOf(m); if (a) { if (!byPin.has(a.id)) byPin.set(a.id, []); byPin.get(a.id).push(m); } }
+    const mkPill = (m) => { const img = m.type === 'npc' ? npcByName(m.name)?.img : ''; return `<span class="vn-mk t-${esc(m.type)}" title="${esc((MARKER_TYPES[m.type] || m.type) + ' · ' + m.name + ' (' + (placeById(m.place)?.name || '?') + ')')}">${img ? `<img src="${esc(img)}" alt="">` : `<i>${MARKER_ICON[m.type] || '📍'}</i>`}<b>${esc(m.name)}</b></span>`; };
+    const mkHtml = [...byPin.entries()].map(([id, list]) => { const a = placeById(id); return `<div class="vn-mks ${a.y < 24 ? 'below' : ''}" style="left:clamp(56px, ${a.x}%, calc(100% - 56px));top:${a.y}%">${list.slice(0, 5).map(mkPill).join('')}${list.length > 5 ? `<span class="vn-mk more">+${list.length - 5}</span>` : ''}</div>`; }).join('');
+    const here = (mkf !== 'off' && st.mapScope !== 'world') ? mks.filter((m) => m.place === st.mapScope && (mkf !== 'npc' || m.type === 'npc')) : [];
+    const hereHtml = here.length ? `<div class="vn-mks here" title="${esc(placeById(st.mapScope)?.name || '')}">${here.slice(0, 8).map(mkPill).join('')}</div>` : '';
+    const shownMk = [...byPin.values()].reduce((a, l) => a + l.length, 0) + here.length;
     return `
       ${analyzeBox}
-      <div class="vn-row tight"><label>지도</label><select data-act="map-scope">${scopes.map(([id, n]) => `<option value="${esc(id)}" ${id === st.mapScope ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>${fileInput('map-img-up', '', false, '지도 이미지 올리기')}${map ? '<button class="vn-btn sm danger" data-act="map-img-del">지도 이미지 제거</button>' : ''}<button class="vn-btn sm" data-act="map-flat" title="방마다 따로 생긴 내부 지도를 건물 하나로 합쳐요">내부 지도 정리${nested ? ` (${nested})` : ''}</button></div>
-      <div class="vn-map" style="aspect-ratio:${map?.ratio || 1}">${map ? `<img src="${esc(map.url)}" alt="지도" draggable="false">` : '<div class="vn-map-empty">지도 이미지가 없어요. 위에서 올리거나 장면 생성기에서 만들어 주세요</div>'}${kids.map((p) => `<button class="vn-pin ${p.name === st.mapSel ? 'sel' : ''} ${p.id === cur?.id ? 'cur' : ''}" style="left:${p.x}%;top:${p.y}%" data-act="map-pick" data-id="${esc(p.id)}" data-name="${esc(p.name)}" title="${esc(p.name)}"><span>${esc(p.name)}</span></button>`).join('')}</div>
-      <p class="vn-hint">${L2('핀을 끌어서 옮기고, 눌러서 선택해요. 장면 생성기와 같은 장소 데이터라 양쪽에 같이 반영돼요. 지도 이미지를 <b>새로 그리는 건 장면 생성기</b>에서 해 주세요.', 'Drag pins to move them and click to select. This is the same place data as Scene Studio, so changes apply to both. To <b>draw a new map image</b>, use Scene Studio.')}</p>
+      <div class="vn-row tight"><label>지도</label><select data-act="map-scope">${scopes.map(([id, n]) => `<option value="${esc(id)}" ${id === st.mapScope ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>${fileInput('map-img-up', '', false, '지도 이미지 올리기')}${map ? '<button class="vn-btn sm danger" data-act="map-img-del">지도 이미지 제거</button>' : ''}<button class="vn-btn sm" data-act="map-flat" title="방마다 따로 생긴 내부 지도를 건물 하나로 합쳐요">내부 지도 정리${nested ? ` (${nested})` : ''}</button><button class="vn-btn sm primary" data-act="map-gen" title="이 지도의 장소 위치에 맞춰 지도 그림을 AI로 그려요 (이미지 1회 요금)">${map ? '지도 이미지 다시 생성' : '지도 이미지 생성'}</button><select data-act="map-ratio" title="지도 그림 비율">${Object.keys(MAP_RATIOS).map((r) => `<option value="${r}" ${r === (st.mapRatio || '1:1') ? 'selected' : ''}>${r}</option>`).join('')}</select><select data-act="map-mkf" title="지도에 표시할 마커">${[['all', '마커 전체'], ['npc', 'NPC만'], ['off', '마커 숨김']].map(([v, n]) => `<option value="${v}" ${v === mkf ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
+      <div class="vn-map" style="aspect-ratio:${map?.ratio || 1}">${map ? `<img src="${esc(map.url)}" alt="지도" draggable="false">` : '<div class="vn-map-empty">지도 이미지가 없어요. 위에서 올리거나 "지도 이미지 생성"을 눌러 주세요</div>'}${kids.map(pinHtml).join('')}${mkHtml}${hereHtml}</div>
+      <p class="vn-hint">${L2('핀을 끌어서 옮기고, 눌러서 선택해요. 장면 생성기와 같은 장소 데이터라 양쪽에 같이 반영돼요. 지도 그림은 <b>"지도 이미지 생성"</b>으로 장소 위치에 맞춰 그릴 수 있어요. 마커(NPC 등)는 장소 핀 위에 이름표로 떠요.', 'Drag pins to move them and click to select. This is the same place data as Scene Studio, so changes apply to both. Use <b>"Generate map image"</b> to draw the map to match the pin layout. Markers (NPCs etc.) appear as name tags above place pins.')}</p>
       <div class="vn-row tight"><input type="text" id="vn-newmp" placeholder="새 장소 이름" style="flex:1 1 120px"><select id="vn-newmk">${kindOpts('other')}</select><select id="vn-newmpar"><option value="">${st.mapScope === 'world' ? '세계 지도에 표시' : `${esc(placeById(st.mapScope)?.name || '')} 안`}</option></select><button class="vn-btn sm primary" data-act="map-add">장소 추가</button></div>
       ${sel ? `<div class="vn-mapsel"><div class="vn-pl-img">${selBg ? `<img src="${esc(selBg.url)}" alt="">` : '<span>이미지 없음</span>'}</div><div class="vn-pl-info">
         <div class="vn-row tight"><input type="text" data-act="map-field" data-f="name" data-id="${esc(sel.id)}" value="${esc(sel.name)}" style="flex:1 1 130px"><select data-act="map-kind" data-id="${esc(sel.id)}">${kindOpts(sel.kind || 'other')}</select></div>
@@ -1735,7 +1827,11 @@ ${await gatherWorldContext()}`;
         <textarea rows="2" data-act="map-field" data-f="desc" data-id="${esc(sel.id)}" placeholder="설명">${esc(sel.desc || '')}</textarea>
         <textarea rows="2" data-act="map-field" data-f="visual" data-id="${esc(sel.id)}" placeholder="그림 묘사 (영어 권장, 배경 생성에 쓰여요)">${esc(sel.visual || '')}</textarea>
         <div class="vn-row tight"><button class="vn-btn sm primary" data-act="map-go">이 장소로 이동</button><button class="vn-btn sm" data-act="map-wish">여기서 만나기</button><button class="vn-btn sm" data-act="map-regen">${selBg ? '배경 새로 생성' : '배경 생성'}</button><button class="vn-btn sm danger" data-act="map-del">삭제</button></div></div></div>` : ''}
-      <details class="vn-more"><summary>마커 (${mks.length})</summary>${mks.map((m) => `<div class="vn-fact"><span>${esc(MARKER_TYPES[m.type] || m.type)}</span><b>${esc(m.name)} → ${esc(placeById(m.place)?.name || '?')}</b><button class="vn-x" data-act="marker-del" data-id="${esc(m.id)}" aria-label="삭제">✕</button></div>`).join('') || '<p class="vn-hint">마커가 없어요.</p>'}</details>
+      <details class="vn-more" open><summary>NPC 위치 (${M().npcs.filter((n) => npcMarker(n.name)).length}/${M().npcs.length})</summary>
+        ${M().npcs.length ? `<div class="vn-npcloc">${M().npcs.map((n) => `<div class="vn-npcloc-r"><span class="vn-npcloc-i">${n.img ? `<img src="${esc(n.img)}" alt="">` : '🧑'}</span><b>${esc(n.name)}</b><select data-act="npc-place" data-name="${esc(n.name)}">${placeOptions(npcMarker(n.name)?.place, '위치 모름')}</select></div>`).join('')}</div>
+        <div class="vn-row tight"><button class="vn-btn sm" data-act="npc-locate">위치 없는 NPC 위치 찾기 (모델 1회)</button></div>
+        <p class="vn-hint">NPC가 어느 장소에 있는지 정하면 지도의 그 장소 핀 위에 이름표로 나와요. 장면 생성기의 마커와 같은 데이터예요.</p>` : '<p class="vn-hint">NPC가 아직 없어요. NPC 탭에서 추가하거나 "채팅 기록으로 분석"을 먼저 눌러 주세요. 장소·마커 분석으로 찾은 NPC 마커는 아래 마커 목록에 있어요.</p>'}</details>
+      <details class="vn-more"><summary>마커 (${mks.length}${mks.length && shownMk < mks.length && mkf !== 'off' ? ` · 이 지도에 ${shownMk}개 표시` : ''})</summary>${mks.map((m) => `<div class="vn-fact vn-mkrow"><span>${esc(MARKER_ICON[m.type] || '')} ${esc(MARKER_TYPES[m.type] || m.type)}</span><b>${esc(m.name)}</b><select data-act="marker-place" data-id="${esc(m.id)}">${placeOptions(m.place, '장소 없음')}</select><button class="vn-x" data-act="marker-del" data-id="${esc(m.id)}" aria-label="삭제">✕</button></div>`).join('') || '<p class="vn-hint">마커가 없어요.</p>'}</details>
       <details class="vn-more"><summary>장소 목록 (${w.places.length})</summary><div class="vn-plist">${w.places.map((p) => { const b = bgFor(p.name); return `<button class="vn-pchip ${b ? 'has' : ''}" data-act="map-pick" data-id="${esc(p.id)}" data-name="${esc(p.name)}">${b ? '🖼 ' : ''}${esc(p.name)}</button>`; }).join('')}</div>
       <p class="vn-hint">🖼 표시는 이미 이미지가 있는 장소예요. 이런 장소는 다시 만들지 않고 그대로 써요. 새로 만들려면 "배경 새로 생성"을 직접 눌러야 해요.</p></details>`;
   }
@@ -2446,6 +2542,7 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
     for (const by of Object.values(s.placesBy || {})) Object.values(by).forEach((p) => add(p.url));
     Object.values(s.places || {}).forEach((p) => add(p.url));
     const m = ctx().chatMetadata?.[MODULE]; if (m) { (m.gallery || []).forEach((e) => { add(e.url); add(e.video); }); (m.npcs || []).forEach((n) => add(n.img)); }
+    Object.values(ctx().chatMetadata?.minimap?.world?.maps || {}).forEach((mp) => add(mp?.url));   // 지도 이미지
     return set;
   }
   /* 목록에서 지운 이미지가 다른 곳에서 쓰이지 않으면 서버 파일도 지운다 (가능한 경우에만) */
@@ -2625,6 +2722,20 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
         w.places.push(p); autoLayoutPlaces(); saveMeta(); st.mapSel = n; return renderModal();
       }
       case 'map-analyze': { el.disabled = true; ui.status('장소·마커를 분석하는 중…'); try { await analyzeWorldVN(); } catch (e) { toastr.error('분석 실패: ' + (e.message || e)); } ui.status(''); return renderModal(); }
+      case 'map-gen': {
+        const w = ssWorld(); if (!w) return;
+        if (!s.geminiKey.trim()) return toastr.warning('이미지 API 키를 먼저 넣어 주세요.');
+        const scope = st.mapScope, old = w.maps?.[scope], nm = scope === 'world' ? '세계' : (placeById(scope)?.name || '');
+        if (!confirm(`'${nm}' 지도 이미지를 ${old ? '새로 ' : ''}생성할까요? (이미지 1회 요금)${old ? '\n지금 지도 이미지는 새 이미지로 바뀌어요.' : ''}`)) return;
+        el.disabled = true; ui.status('지도 이미지를 그리는 중… ' + nm);
+        try { await generateMapVN(scope); toastr.success('지도 이미지를 만들었어요. 그림과 핀이 어긋나면 핀을 끌어서 맞춰 주세요.'); } catch (e) { toastr.error('지도 생성 실패: ' + (e.message || e)); }
+        ui.status(''); return renderModal();
+      }
+      case 'npc-locate': {
+        el.disabled = true; ui.status('NPC 위치를 찾는 중…');
+        try { const n = await locateNpcsVN(); toastr[n ? 'success' : 'info'](n ? `NPC ${n}명의 위치를 정했어요. 틀린 곳은 직접 바꿔 주세요.` : '새로 정할 NPC 위치가 없어요.'); } catch (e) { toastr.error('실패: ' + (e.message || e)); }
+        ui.status(''); return renderModal();
+      }
       case 'marker-del': { const w = ssWorld(); if (w?.markers) { w.markers = w.markers.filter((m) => m.id !== el.dataset.id); saveMeta(); } return renderModal(); }
       case 'map-flat': { const n = flattenPlaces(); autoLayoutPlaces(); saveMeta(); toastr.success(n ? `${n}개 장소를 건물 바로 아래로 옮겨 내부 지도를 합쳤어요. 새 위치를 확인해 주세요.` : '합칠 내부 지도가 없어요. 이미 정리돼 있어요.'); return renderModal(); }
       case 'map-img-del': { const w = ssWorld(); if (!w?.maps) return; if (!confirm('이 지도 이미지를 제거할까요? (장소는 그대로 남아요)')) return; delete w.maps[st.mapScope]; saveMeta(); return renderModal(); }
@@ -2657,6 +2768,10 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
       if (f === 'aliases') p.aliases = el.value.split(',').map((x) => x.trim()).filter(Boolean); else p[f] = f === 'name' ? (el.value.trim() || p.name) : el.value;
       if (f === 'name') st.mapSel = p.name; saveMeta(); if (f === 'name') renderModal(); return;
     }
+    if (act === 'map-ratio') { st.mapRatio = MAP_RATIOS[el.value] ? el.value : '1:1'; return; }
+    if (act === 'map-mkf') { st.mapMk = el.value; return renderModal(); }
+    if (act === 'npc-place') { setNpcPlace(el.dataset.name, el.value); return renderModal(); }
+    if (act === 'marker-place') { const m = (ssWorld()?.markers || []).find((x) => x.id === el.dataset.id); if (m) { m.place = el.value; saveMeta(); } return renderModal(); }
     if (act === 'map-kind') { const p = placeById(el.dataset.id); if (p) { p.kind = el.value; saveMeta(); } return; }
     if (act === 'map-parent') { const p = placeById(el.dataset.id); if (!p) return; p.parent = el.value || null; p.x = null; p.y = null; st.mapScope = p.parent || 'world'; autoLayoutPlaces(); saveMeta(); return renderModal(); }
     if (act === 'map-img-up') {
@@ -2668,7 +2783,7 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
       ui.status(''); el.value = ''; return renderModal();
     }
     if (act === 'map-rename') { const w = ssWorld(), p = w?.places.find((x) => x.id === el.dataset.id); if (p && el.value.trim()) { p.name = el.value.trim(); st.mapSel = p.name; saveMeta(); renderModal(); } return; }
-    if (act === 'npc-field') { const n = npcByName(st.npcSel); if (n) { const f = el.dataset.f; const v = el.value.trim(); if (f === 'name' && v && v !== n.name) { st.npcSel = v; } if (f === 'name' ? v : true) n[f] = f === 'name' ? v : el.value; saveMeta(); if (f === 'name') renderModal(); } return; }
+    if (act === 'npc-field') { const n = npcByName(st.npcSel); if (n) { const f = el.dataset.f; const v = el.value.trim(); if (f === 'name' && v && v !== n.name) { const mk = npcMarker(n.name); if (mk) mk.name = v; st.npcSel = v; } if (f === 'name' ? v : true) n[f] = f === 'name' ? v : el.value; saveMeta(); if (f === 'name') renderModal(); } return; }
     if (act === 'dos-up') { if (el.files?.[0] && cd) { ui.status('이미지를 올리는 중…'); try { cd.profile = await uploadImage(el.files[0]); saveSettings(); } catch (e) { toastr.error('업로드 실패: ' + (e.message || e)); } ui.status(''); el.value = ''; renderModal(); } return; }
     if (act === 'npc-up') { const n = npcByName(st.npcSel); if (n && el.files?.[0]) { ui.status('이미지를 올리는 중…'); try { n.img = await uploadImage(el.files[0]); saveMeta(); } catch (e) { toastr.error('업로드 실패: ' + (e.message || e)); } ui.status(''); el.value = ''; renderModal(); } return; }
     if (act === 'of-desc') { const n = el.closest('[data-of]').dataset.of; cd.outfits[n].desc = el.value; saveSettings(); return; }
@@ -3015,8 +3130,12 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
     '응답 품질 · 언어': 'Reply quality · Language', '내 입력이 짧아도 답변 길이·품질 유지': 'Keep reply length and quality even when my input is short', '모델에게 "이전 답변만큼 길고 풍부하게, 짧은 입력을 따라 줄어들지 말 것"을 항상 전달해요.': 'Always tells the model to "stay as long and rich as earlier replies and not shrink to match a short input".', '추가 품질 지시 (선택)': 'Extra quality instruction (optional)', '예: 최소 4문단, 감각 묘사와 인물의 속마음을 포함': 'e.g. At least 4 paragraphs, with sensory detail and the character\'s inner thoughts',
     '이야기 출력 언어': 'Story output language', '화면 언어와 같게': 'Same as UI language', '채팅 기록을 따라감': 'Follow the chat history', '기존 채팅이 영어여도 한국어를 고르면 모델이 한국어로 쓰도록 강하게 지시해요. 선택지와 상태 정보도 같은 언어예요.': 'Even if the existing chat is in English, choosing Korean strongly instructs the model to write in Korean. Choices and status info use the same language.',
     '내가 다른 언어로 입력하면 출력 언어로 번역해서 전송 (모델 1회)': 'Translate my input into the output language before sending (1 model call)', '예: 한국어로 입력했는데 출력 언어가 English이면 영어로 번역한 문장이 SillyTavern에 기록돼요.': 'e.g. If you type in Korean but the output language is English, the English translation is what gets recorded in SillyTavern.', '입력을 번역하는 중': 'Translating your input', '입력 번역에 실패해서 원문 그대로 보내요: {}': 'Input translation failed, sending the original: {}',
+    '지도 이미지 생성': 'Generate map image', '지도 이미지 다시 생성': 'Regenerate map image', '마커 전체': 'All markers', 'NPC만': 'NPCs only', '마커 숨김': 'Hide markers', '위치 모름': 'Unknown', '장소 없음': 'No place',
+    '위치 없는 NPC 위치 찾기 (모델 1회)': 'Find locations for NPCs without one (1 model call)', '지도 위치': 'Map location',
+    'NPC가 어느 장소에 있는지 정하면 지도의 그 장소 핀 위에 이름표로 나와요. 장면 생성기의 마커와 같은 데이터예요.': 'Once you set where an NPC is, its name tag appears above that place pin on the map. This is the same data as the Scene Studio markers.',
+    '이미지 API 키를 먼저 넣어 주세요.': 'Enter the image API key first.', '지도 이미지를 만들었어요. 그림과 핀이 어긋나면 핀을 끌어서 맞춰 주세요.': 'Map image created. If the picture and the pins do not line up, drag the pins to match.',
     '내부 지도 정리': 'Tidy inner maps', '내부 지도 정리 ({})': 'Tidy inner maps ({})', '지도 이미지 올리기': 'Upload map image', '지도 이미지 제거': 'Remove map image', '지도 이미지를 올리는 중…': 'Uploading the map image…', '이 지도 이미지를 제거할까요? (장소는 그대로 남아요)': 'Remove this map image? (Places stay as they are.)',
-    '지도 이미지가 없어요. 위에서 올리거나 장면 생성기에서 만들어 주세요': 'No map image. Upload one above or create it in Scene Studio.', '다른 이름 (쉼표로 구분)': 'Other names (comma-separated)', '설명': 'Description', '그림 묘사 (영어 권장, 배경 생성에 쓰여요)': 'Visual description (English recommended, used for background generation)', '위치': 'Location', '세계 지도에 표시': 'Show on the world map',
+    '지도 이미지가 없어요. 위에서 올리거나 "지도 이미지 생성"을 눌러 주세요': 'No map image. Upload one above or press "Generate map image".', '다른 이름 (쉼표로 구분)': 'Other names (comma-separated)', '설명': 'Description', '그림 묘사 (영어 권장, 배경 생성에 쓰여요)': 'Visual description (English recommended, used for background generation)', '위치': 'Location', '세계 지도에 표시': 'Show on the world map',
     '{}개 장소를 건물 바로 아래로 옮겨 내부 지도를 합쳤어요. 새 위치를 확인해 주세요.': 'Moved {} places directly under their building to merge the inner maps. Please check the new positions.', '합칠 내부 지도가 없어요. 이미 정리돼 있어요.': 'No inner maps to merge. Already tidy.',
     '도시': 'City', '마을·구역': 'Town / District', '여관·숙소': 'Inn', '상점': 'Shop', '식당·카페': 'Restaurant / Cafe', '대장간': 'Smithy', '신전·교회': 'Temple / Church', '학교': 'School', '집': 'Home', '성·궁전': 'Castle / Palace', '문·다리': 'Gate / Bridge', '던전·동굴': 'Dungeon / Cave', '숲·공원': 'Forest / Park', '강·호수·바다': 'River / Lake / Sea', '건물': 'Building', '기타': 'Other',
     '장면 생성기 화풍을 쓰는 중: {}': 'Using the Scene Studio style: {}', '장면 생성기에 저장된 화풍이 없어서 아래 직접 입력 값을 써요.': 'Scene Studio has no saved style, so the custom value below is used.', '직접 입력 / 저장한 프리셋을 쓰는 중이에요.': 'Using a custom value / saved preset.',

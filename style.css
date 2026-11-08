@@ -208,9 +208,10 @@ body.vn-open #vn-fab { display: none !important; }
 .vn-caldet { margin-top: 10px; padding: 8px 14px; background: rgba(255,255,255,.04); border-radius: 10px; } .vn-caldet p { margin: 4px 0; }
 .vn-map { position: relative; width: min(100%, 560px); margin: 8px auto; background: rgba(255,255,255,.05); border-radius: 12px; overflow: hidden; }
 .vn-map img { width: 100%; height: 100%; object-fit: fill; display: block; } .vn-map-empty { position: absolute; inset: 0; display: grid; place-items: center; font-size: .85rem; color: var(--mist); }
-.vn-pin { position: absolute; width: 22px; height: 22px; padding: 0; transform: translate(-50%, -50%); background: var(--petal); border: 2px solid #fff; border-radius: 50%; box-shadow: 0 1px 6px rgba(0,0,0,.6); }
+#vn-root .vn-pin { position: absolute; z-index: 2; box-sizing: border-box; display: grid; place-items: center; width: 30px; height: 30px; min-width: 0; aspect-ratio: 1; padding: 0; line-height: 1; transform: translate(-50%, -50%); background: rgba(var(--panel-rgb),.9); border: 2px solid var(--petal); border-radius: 50%; box-shadow: 0 1px 6px rgba(0,0,0,.65); }
+.vn-pin .vn-ic { font-style: normal; font-size: 16px; line-height: 1; pointer-events: none; font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif; }
 .vn-pin span { position: absolute; left: 50%; top: 100%; transform: translateX(-50%); margin-top: 3px; padding: 1px 6px; font-size: .68rem; white-space: nowrap; color: #fff; background: rgba(0,0,0,.72); border-radius: 4px; pointer-events: none; }
-.vn-pin.sel { background: var(--apricot); transform: translate(-50%, -50%) scale(1.25); } .vn-pin.cur { outline: 3px solid #ff4d4d; outline-offset: 2px; }
+#vn-root .vn-pin.sel { background: var(--apricot); border-color: #fff; transform: translate(-50%, -50%) scale(1.25); z-index: 3; } .vn-pin.cur { outline: 3px solid #ff4d4d; outline-offset: 2px; }
 .vn-mapsel { display: flex; gap: 12px; margin: 10px 0; padding: 10px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.14); border-radius: 10px; } @media (max-width: 640px) { .vn-mapsel { flex-direction: column; } }
 .vn-plist { display: flex; flex-wrap: wrap; gap: 6px; } .vn-pchip { padding: 4px 12px; font-size: .82rem; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.2); border-radius: 999px; } .vn-pchip.has { border-color: var(--petal); }
 .vn-ofdesc { width: 100%; margin: 6px 0 0; }
@@ -421,3 +422,17 @@ body.vn-open #vn-fab { display: none !important; }
 .vn-sprpop label { display: grid; grid-template-columns: 3em 1fr 3em; align-items: center; gap: 8px; } .vn-sprpop output { text-align: right; color: var(--mist); font-size: .78rem; }
 .vn-sprpop .vn-prow { display: flex; gap: 6px; justify-content: flex-end; } .vn-sprpop button { padding: 3px 10px; font-size: .78rem; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.25); border-radius: 7px; }
 .vn-event.hide-cap .vn-ev-cap { display: none; }
+
+/* 지도 마커(NPC·캐릭터·나)와 NPC 위치 목록 */
+.vn-mks { position: absolute; z-index: 4; display: flex; flex-direction: column; align-items: center; gap: 2px; transform: translate(-50%, -100%); margin-top: -19px; pointer-events: none; max-width: 120px; }
+.vn-mk { display: inline-flex; align-items: center; gap: 3px; max-width: 110px; padding: 1px 7px 1px 3px; font-size: .64rem; line-height: 1.25; color: #fff; background: rgba(0,0,0,.78); border: 1.5px solid var(--mist); border-radius: 999px; box-shadow: 0 1px 4px rgba(0,0,0,.6); }
+.vn-mk i { font-style: normal; font-size: .8rem; line-height: 1; } .vn-mk b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vn-mk img { width: 16px; height: 16px; flex: none; object-fit: cover; object-position: top; border-radius: 50%; background: #555; }
+.vn-mk.t-npc { border-color: #8fd3ff; } .vn-mk.t-char { border-color: var(--petal); } .vn-mk.t-user { border-color: var(--apricot); } .vn-mk.t-enemy { border-color: #ff6b6b; } .vn-mk.t-quest { border-color: #ffe066; } .vn-mk.more { padding: 1px 7px; }
+.vn-npcloc { display: flex; flex-direction: column; gap: 5px; margin: 6px 0; }
+.vn-npcloc-r { display: flex; align-items: center; gap: 8px; padding: 4px 8px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12); border-radius: 8px; }
+.vn-npcloc-r b { flex: 1 1 70px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; } .vn-npcloc-r select { flex: 1 1 130px; max-width: 200px; min-width: 0; }
+.vn-npcloc-i { display: grid; place-items: center; width: 28px; height: 28px; flex: none; overflow: hidden; font-size: 1rem; background: rgba(255,255,255,.08); border-radius: 50%; } .vn-npcloc-i img { width: 100%; height: 100%; object-fit: cover; object-position: top; }
+.vn-mkrow { flex-direction: row; align-items: center; flex-wrap: wrap; gap: 8px; } .vn-mkrow b { flex: 1 1 60px; min-width: 0; } .vn-mkrow select { flex: 1 1 120px; max-width: 180px; min-width: 0; }
+.vn-mks.here { left: 50%; top: 2%; transform: translate(-50%, 0); margin-top: 0; flex-direction: row; flex-wrap: wrap; justify-content: center; max-width: 94%; }
+.vn-mks.below { transform: translate(-50%, 0); margin-top: 38px; }
