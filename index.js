@@ -73,7 +73,7 @@
     choiceCount: 4, choiceLen: 70, choiceP1: '', choiceP2: '', choiceP3: '', choiceP4: '', choiceExtra: '',
     useSSLook: true, lookModel: 'gemini-3.1-flash', lookVision: false, stylePreset: 'ss', stylePresets: [], negative: '',
     analyzePlaces: false, bgBlank: false, bgBlankColor: '#ffffff', bgBlankAuto: true, textH: 0, lpWidth: 0, fabPos: null, htmlPos: null, fabShow: true, theme: 'sakura', spriteScale: 100, spriteY: 0, evText: true, followCount: 3, llmTimeout: 150, deleteFiles: true, hideInChat: false, htmlAuto: false, lang: 'ko', devMode: false, hideBlocks: true, hideYaml: true, hideRegex: '', cutout: true, cutTol: 34, emosDefault: ['neutral', 'joy', 'sadness', 'anger', 'surprise', 'embarrassment'], enabled: true, fab: true, autoOpen: false, inject: true, choicesMode: 'both', eventEvery: 4,
-    useST: true, classify: true, useAvatars: true, autoSprite: true, npcAutoImg: false, choiceFs: 90, choiceFsMin: 78, minTextH: 150, npcGap: 26, npcScale: 100, npcY: 0, npcFirst: 'R', npcFace: true, spriteCap: 6, useSS: true, autoAnalyze: true, hideTags: '',
+    useST: true, classify: true, useAvatars: true, autoSprite: true, npcAutoImg: false, npcStyleRef: false, cutOrig: {}, choiceFs: 90, choiceFsMin: 78, minTextH: 150, npcGap: 26, npcScale: 100, npcY: 0, npcFirst: 'R', npcFace: true, spriteCap: 6, useSS: true, autoAnalyze: true, hideTags: '',
     autoBg: true, autoEventImg: true, autoEventVid: false, videoConfirm: true,
     style: 'visual novel background art, soft anime painterly style, clean lines, rich atmosphere, high detail',
     cgStyle: 'visual novel event CG, anime illustration, cinematic composition, emotional lighting, high detail',
@@ -1123,7 +1123,7 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
       if (k && side[k].url === npc.img) { side[k].el.style.setProperty('--flip', ui.npcFlip(npc, k) ? -1 : 1); return; }
       if (!k) { const first = S().npcFirst === 'L' ? 'L' : 'R', second = first === 'R' ? 'L' : 'R'; k = !side[first] ? first : second; }
       if (side[k]) { const o = side[k].el; o.classList.remove('on'); setTimeout(() => o.remove(), fade); }
-      const img = document.createElement('img'); img.alt = ''; img.className = 'vn-sp vn-sp-npc' + (k === 'L' ? ' left' : '') + (npcSpecies(npc) ? ' animal' : ''); img.src = npc.img;
+      const img = document.createElement('img'); img.alt = ''; img.className = 'vn-sp vn-sp-npc' + (k === 'L' ? ' left' : '') + (npcIsAnimal(npc) ? ' animal' : ''); img.src = npc.img;
       img.style.setProperty('--flip', ui.npcFlip(npc, k) ? -1 : 1);
       wrap.appendChild(img); void img.offsetWidth; img.classList.add('on');
       side[k] = { name: npc.name, url: npc.img, el: img };
@@ -1566,16 +1566,15 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
       <p class="vn-hint">NPC는 ${esc(cast.map((c) => c.name).join(', ') || '주인공')} 외에 이야기에 나오는 이름 있는 인물이에요. "카드·로어북으로 NPC 찾기"는 아직 만나지 않은 인물까지 카드와 로어북에서 한 번에 모아요. "채팅 기록으로 분석"은 대화에 나온 인물을 찾고 관계 요약과 정보를 갱신해요. NPC에 이미지를 넣어 두면 이야기에 나올 때 주인공 옆에 같이 나타나요.</p>
       ${npcs.length ? `<div class="vn-npcs">${npcs.map((n) => `<button class="vn-npc ${n.name === st.npcSel ? 'sel' : ''}" data-act="npc-open" data-name="${esc(n.name)}"><span class="vn-npc-img">${n.img ? `<img src="${esc(n.img)}" alt="">` : '👤'}</span><b>${esc(n.name)}</b><small>${esc(n.role || 'NPC')}</small></button>`).join('')}</div>` : '<p class="vn-hint">아직 등장인물이 없어요. 위에서 직접 추가하거나 "채팅 기록으로 분석"을 눌러 주세요. 일상 모드에서 새 인물이 나오면 자동으로 모여요.</p>'}
       ${sel ? `<div class="vn-npced"><div><div class="vn-npced-pic">${sel.img ? `<img src="${esc(sel.img)}" alt="${esc(sel.name)}" title="클릭하면 크게 보기">` : '<span>이미지 없음</span>'}</div>
-        <div class="vn-dos-picbtns">${fileInput('npc-up', '', false, '이미지 바꾸기')}${npcImgPool().length ? '<button class="vn-btn" data-act="npc-pick">내 이미지에서 고르기</button>' : ''}<button class="vn-btn" data-act="npc-gen">AI로 만들기</button>${sel.img ? '<button class="vn-btn" data-act="npc-cut">✂ 배경 제거</button><button class="vn-btn" data-act="npc-imgdel">이미지 삭제</button>' : ''}</div></div>
+        <div class="vn-dos-picbtns">${fileInput('npc-up', '', false, '이미지 바꾸기')}${npcImgPool().length ? '<button class="vn-btn" data-act="npc-pick">내 이미지에서 고르기</button>' : ''}<button class="vn-btn" data-act="npc-gen">AI로 만들기</button>${sel.img ? '<button class="vn-btn" data-act="npc-cut">✂ 배경 제거</button>' + (S().cutOrig?.[sel.img] ? '<button class="vn-btn" data-act="npc-uncut">↩ 원본으로 되돌리기</button>' : '') + '<button class="vn-btn" data-act="npc-imgdel">이미지 삭제</button>' : ''}</div></div>
         <div class="vn-npced-f">
           <div class="vn-row tight"><input type="text" data-act="npc-field" data-f="name" value="${esc(sel.name)}" placeholder="이름" style="flex:1 1 110px"><input type="text" data-act="npc-field" data-f="role" value="${esc(sel.role || '')}" placeholder="역할 / 관계" style="flex:1 1 90px"></div>
           ${S().useSS && ssWorld()?.places?.length ? `<div class="vn-row tight"><label>지도 위치</label><select data-act="npc-place" data-name="${esc(sel.name)}" style="flex:1 1 140px">${placeOptions(npcMarker(sel.name)?.place, '위치 모름')}</select></div>` : ''}
           <div class="vn-row tight"><label>이미지가 보는 방향</label><select data-act="npc-field" data-f="faces" style="flex:1 1 140px">${[['', '모름 (반전 안 함)'], ['left', '왼쪽을 봐요'], ['right', '오른쪽을 봐요']].map(([v, l]) => `<option value="${v}" ${(sel.faces || '') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
-          <div class="vn-row tight"><label>종류</label><input type="text" data-act="npc-field" data-f="species" value="${esc(sel.species || '')}" placeholder="비우면 사람 · 동물이면 예: orange tabby cat" style="flex:1 1 180px"></div>
-          <p class="vn-hint">고르거나 올린 이미지가 '기준 사진'이 돼요. AI로 만들 때와 '외형 태그 뽑기'에서 설명·로어북보다 사진을 먼저 보고 맞춰요. 동물은 '종류'를 적어 주면 사람으로 그려지지 않아요.</p>
-          <textarea rows="2" data-act="npc-field" data-f="desc" placeholder="설명 (외형·성격, AI 이미지 생성에도 쓰여요)">${esc(sel.desc || '')}</textarea>
-          <textarea rows="2" data-act="npc-field" data-f="look" placeholder="외형 태그 (영어). 비워 두면 AI 이미지를 만들 때 설명 → 카드·로어북 → 채팅 기록 순으로 근거를 찾아 자동으로 만들어요">${esc(sel.look || '')}</textarea>
-          <div class="vn-row tight"><button class="vn-btn sm" data-act="npc-look">자료에서 외형 태그 뽑기 (모델 1회)</button></div>
+          <p class="vn-hint">고르거나 올린 이미지가 '기준 사진'이에요. "이미지로 외형 태그 뽑기"는 이 이미지만 보고 추측해서 만들고(설명·로어북·채팅 기록은 쓰지 않아요), AI로 만들 때도 사진을 먼저 따라요. 사람이든 동물이든 같아요.</p>
+          <textarea rows="2" data-act="npc-field" data-f="desc" placeholder="설명 (메모예요. 외형 태그·AI 이미지에는 영향을 주지 않아요)">${esc(sel.desc || '')}</textarea>
+          <textarea rows="2" data-act="npc-field" data-f="look" placeholder="외형 태그 (영어). 비워 두고, 이미지를 정한 뒤 아래 \"이미지로 외형 태그 뽑기\"를 누르면 이미지를 보고 만들어요">${esc(sel.look || '')}</textarea>
+          <div class="vn-row tight"><button class="vn-btn sm" data-act="npc-look">이미지로 외형 태그 뽑기 (모델 1회)</button></div>
           <textarea rows="2" data-act="npc-field" data-f="summary" placeholder="관계 요약 (${esc(ctx().name1 || '나')}와 ${esc(cast[0]?.name || '캐릭터')} 사이에서의 위치)">${esc(sel.summary || '')}</textarea>
           <h4>알아낸 정보</h4>
           <div class="vn-facts">${[...NPC_STD(), ...extra].map(fact).join('')}</div>
@@ -1951,7 +1950,7 @@ IMPORTANT: absolutely no text, letters, numbers, labels, signs with writing, leg
     if (!cast.length) return '<p class="vn-hint">캐릭터 채팅을 연 다음에 설정할 수 있어요.</p>';
     const ch = selChar(); st.selChar = chKey(ch);
     const cd = cdata(ch), sp = S().useST ? await stSprites(ch) : {}, nSp = Object.keys(sp).length, wearing = outfitOf(ch), en = enabledEmos(ch);
-    const thumb = (u, label, regen = true) => `<figure class="vn-th"><img src="${esc(u)}" alt="${esc(label)}" title="클릭하면 크게 보기"><figcaption>${esc(label)}</figcaption><button class="vn-x" data-act="emo-del" data-l="${esc(label)}" aria-label="삭제">✕</button>${regen ? `<button class="vn-rg" data-act="emo-regen" data-l="${esc(label)}" title="이 표정 다시 생성" aria-label="다시 생성">↻</button>` : ''}<button class="vn-cutb" data-act="emo-cut" data-l="${esc(label)}" title="배경 제거(투명하게)" aria-label="배경 제거">✂</button></figure>`;
+    const thumb = (u, label, regen = true) => `<figure class="vn-th"><img src="${esc(u)}" alt="${esc(label)}" title="클릭하면 크게 보기"><figcaption>${esc(label)}</figcaption><button class="vn-x" data-act="emo-del" data-l="${esc(label)}" aria-label="삭제">✕</button>${regen ? `<button class="vn-rg" data-act="emo-regen" data-l="${esc(label)}" title="이 표정 다시 생성" aria-label="다시 생성">↻</button>` : ''}<button class="vn-cutb" data-act="emo-cut" data-l="${esc(label)}" title="배경 제거(투명하게)" aria-label="배경 제거">✂</button>${S().cutOrig?.[u] ? `<button class="vn-uncutb" data-act="emo-uncut" data-l="${esc(label)}" title="배경 제거 전 원본으로 되돌리기" aria-label="원본으로 되돌리기">↩</button>` : ''}</figure>`;
     const ofs = Object.entries(cd.outfits).map(([name, o]) => {
       const emoList = Object.entries(o.emo || {}), missing = en.filter((e) => !o.emo?.[e]).length;
       return `
@@ -2098,7 +2097,7 @@ IMPORTANT: absolutely no text, letters, numbers, labels, signs with writing, leg
       ${sec('진행', `${chk('enabled', 'VN Studio 사용')}${chk('autoOpen', '캐릭터가 답하면 팝업 자동으로 열기')}${chk('inject', '모델에게 [VN] 블록 규칙 보내기', '끄면 표정·장소·호감도·선택지가 자동으로 안 나와요.')}${chk('autoAnalyze', '기존 채팅이 있으면 처음 한 번 호감도·관계·정보 분석', '모델을 1회 호출해요. 채팅 내용이 연결된 모델로 전송돼요.')}${selRow('choicesMode', '입력 방식', [['both', '선택지 + 직접 입력 (선택지 아래에 입력칸)'], ['choice', '선택지만'], ['free', '직접 입력만']])}`)}
       ${sec('채팅 모드: 글상자에 안 보이게 숨기기', `${chk('hideInChat', 'SillyTavern 채팅창에서도 숨기기 (아래 태그 이름 + facts/status 등)', '화면에서만 가려요. 저장된 대화와 모델에게 보내는 내용은 그대로예요. 짝이 안 맞는 태그(&lt;small&gt;&lt;facts&gt;&lt;/small&gt;&lt;/facts&gt;)도 처리해요.')}${chk('htmlAuto', 'HTML/CSS 효과가 있는 메시지는 효과 창을 자동으로 열기', '프리셋이 만드는 색·애니메이션·움직이는 이미지 효과만 작은 창에 따로 보여 줘요(생각·본문·상태창 글은 제외). 효과가 있는 메시지일 때만 상단에 &lt;/&gt; 버튼이 나타나고, 창 오른쪽 위에 마우스를 올리면 이동·닫기 버튼이 보여요.')}${chk('hideYaml', 'YAML형 상태창 줄(key: value가 3줄 이상 이어짐) 숨기기', '```로 감싸지 않은 상태창도 가려요. 대사가 "이름: 말" 형식이라 잘못 가려지면 끄세요.')}${chk('hideBlocks', '상태창·코드블록·HTML 블록 통째로 숨기기', '```로 감싼 블록, &lt;div&gt;/&lt;table&gt;/&lt;details&gt; 같은 HTML 블록, [STATUS]…[/STATUS]를 연출에서 빼요.')}<div class="vn-opt"><label class="vn-lbl">숨길 태그 이름 (쉼표로 구분)</label><input type="text" data-vk="hideTags" placeholder="예: mythink, 상태창"><p class="vn-opt-h">think, status, 상태창, details 등 흔한 태그는 이미 자동으로 숨겨요.</p></div><div class="vn-opt"><label class="vn-lbl">숨길 패턴 (정규식, 한 줄에 하나)</label><textarea rows="2" data-vk="hideRegex" placeholder="예: ^\\[.*?\\]$"></textarea></div>`)}
       ${sec('이벤트 씬', `${numRow('eventEvery', '이벤트 최소 간격 (메시지 수)', 2, 60)}${selRow('eventSrc', '장면 이미지', [['ss', '장면 생성기 새 장면 우선, 없으면 새로 생성'], ['gen', '항상 새로 생성'], ['ssonly', '장면 생성기 장면만 (생성 비용 0)']], L2(`발동 조건: ① 모델이 event: 를 낼 때(간격 적용) ② 호감도가 한 번에 ±4 이상 변하거나 하트 단계를 넘을 때 ③ 일상 모드의 하이라이트 장면 ④ 글상자 아래 "🎬 이 장면을 이벤트 씬으로" 버튼. ${M().lastEvent <= -90 ? '아직 이벤트가 한 번도 없었어요.' : `마지막 이벤트 후 ${sinceEvent()}개 메시지가 지났어요.`}`, `Triggers: ① the model emits event: (interval applies) ② closeness changes by ±4 or more at once, or a heart level is passed ③ a daily-mode highlight scene ④ the "🎬 Make this an event scene" button under the text box. ${M().lastEvent <= -90 ? 'No event has happened yet.' : `${sinceEvent()} messages since the last event.`}`))}${chk('autoEventImg', '이벤트 발생 시 CG 자동 준비')}${chk('autoEventVid', '이벤트 CG를 영상으로 자동 변환', '켜면 확인창 없이 요금이 나가요.')}${chk('videoConfirm', '수동 영상 생성 때 요금 확인창 띄우기')}${chk('useAvatars', 'CG 생성 시 캐릭터·페르소나 이미지를 참조로 보내기')}`)}
-      ${sec('연동 · 이미지 생성 (API 요금 발생)', `${chk('useSS', '장면 생성기(Scene Studio) 연동', '장소 목록·지도·이미 만든 장면 이미지·화풍·외형 태그를 가져다 써요.')}${chk('autoBg', '배경이 없는 장소는 한 번만 자동 생성')}${chk('autoSprite', '고른 표정이 없으면 한 장씩 자동 생성')}${chk('npcAutoImg', '마주친 NPC에 이미지가 없으면 한 번만 자동 생성', 'NPC가 이야기에 나왔는데 이미지가 없을 때, 이미지 1회 요금으로 한 장 만들어 주인공 옆에 띄워요. 실패하면 그 NPC는 다시 시도하지 않아요. 끄면 NPC 탭에서 직접 올리거나 만든 이미지만 나와요.')}${numRow('spriteCap', '표정 자동 생성 상한 (접속당)', 0, 60)}${numRow('llmTimeout', '모델 응답 기다리는 최대 시간 (초)', 30, 600, 10, '일상 모드 계획·장면 생성이 이 시간 안에 오지 않으면 이유와 함께 실패로 처리하고 다시 시도할 수 있어요.')}${numRow('imgGapSec', '이미지 요청 간격 (초)', 0, 60, 1, '429(요청 과다)가 뜨면 늘려 보세요. 429가 나면 자동으로 기다렸다가 다시 시도해요.')}${chk('cutout', '생성한 캐릭터 이미지의 배경 자동 제거 (투명 PNG)', '흰 배경으로 만든 뒤 가장자리에서부터 배경색만 지워요. 배경이 균일하지 않으면 원본을 그대로 저장해요.')}${numRow('cutTol', '배경 제거 민감도', 10, 80, 2, '값이 크면 배경을 더 많이 지우지만 인물 가장자리가 깎일 수 있어요.')}${chk('useST', 'SillyTavern 표정 스프라이트 사용')}${chk('classify', '[VN] 블록에 표정이 없으면 분류기로 추정')}`)}
+      ${sec('연동 · 이미지 생성 (API 요금 발생)', `${chk('useSS', '장면 생성기(Scene Studio) 연동', '장소 목록·지도·이미 만든 장면 이미지·화풍·외형 태그를 가져다 써요.')}${chk('autoBg', '배경이 없는 장소는 한 번만 자동 생성')}${chk('autoSprite', '고른 표정이 없으면 한 장씩 자동 생성')}${chk('npcAutoImg', '마주친 NPC에 이미지가 없으면 한 번만 자동 생성', 'NPC가 이야기에 나왔는데 이미지가 없을 때, 이미지 1회 요금으로 한 장 만들어 주인공 옆에 띄워요. 실패하면 그 NPC는 다시 시도하지 않아요. 끄면 NPC 탭에서 직접 올리거나 만든 이미지만 나와요.')}${chk('npcStyleRef', 'NPC를 AI로 만들 때 주인공 이미지도 화풍 기준으로 함께 보내기', '켜면 화풍은 더 비슷해지지만 NPC 얼굴이 주인공을 닮을 수 있어요. 기본은 꺼짐이고, 이때는 기준 사진·배경·화풍 문구만 써요.')}${numRow('spriteCap', '표정 자동 생성 상한 (접속당)', 0, 60)}${numRow('llmTimeout', '모델 응답 기다리는 최대 시간 (초)', 30, 600, 10, '일상 모드 계획·장면 생성이 이 시간 안에 오지 않으면 이유와 함께 실패로 처리하고 다시 시도할 수 있어요.')}${numRow('imgGapSec', '이미지 요청 간격 (초)', 0, 60, 1, '429(요청 과다)가 뜨면 늘려 보세요. 429가 나면 자동으로 기다렸다가 다시 시도해요.')}${chk('cutout', '생성한 캐릭터 이미지의 배경 자동 제거 (투명 PNG)', '흰 배경으로 만든 뒤 가장자리에서부터 배경색만 지워요. 배경이 균일하지 않으면 원본을 그대로 저장해요.')}${numRow('cutTol', '배경 제거 민감도', 10, 80, 2, '값이 크면 배경을 더 많이 지우지만 인물 가장자리가 깎일 수 있어요.')}${chk('useST', 'SillyTavern 표정 스프라이트 사용')}${chk('classify', '[VN] 블록에 표정이 없으면 분류기로 추정')}`)}
       ${sec('선택지 (CYOA)', `${numRow('choiceCount', '선택지 개수', 2, 4)}${numRow('followCount', '일상 모드: 선택 후 이어지는 선택지 개수', 2, 4, 1, '처음 선택지(3~4개)를 고르면 이어지는 후속 선택지가 이 개수만큼 나와요. 모델이 적게 줄 수 있어 개수를 지정해 요청해요.')}${numRow('choiceLen', '선택지 길이 (글자 수 안팎)', 20, 200, 5, '짧고 단조로운 선택지를 줄이려면 늘려 보세요. 행동과 대사를 함께 써요.')}${[1, 2, 3, 4].map((i) => `<div class="vn-opt"><label class="vn-lbl">${i}번 선택지 프롬프트</label><textarea rows="3" data-vk="choiceP${i}" placeholder="${esc(CHOICE_DEF[langKey()][i - 1])}"></textarea></div>`).join('')}<p class="vn-opt-h" style="margin-left:0">비워 두면 위 기본 문장(placeholder)을 써요. {{user}}와 {{char}}를 쓸 수 있어요. 채팅 모드와 일상 모드 모두에 적용돼요.</p><div class="vn-opt"><label class="vn-lbl">선택지 공통 추가 지시</label><textarea rows="2" data-vk="choiceExtra" placeholder="예: 매번 서로 다른 장소/소품을 활용할 것"></textarea></div>`)}
       ${sec('응답 품질 · 언어', `${chk('keepLen', '내 입력이 짧아도 답변 길이·품질 유지', '모델에게 "이전 답변만큼 길고 풍부하게, 짧은 입력을 따라 줄어들지 말 것"을 항상 전달해요.')}<div class="vn-opt"><label class="vn-lbl">추가 품질 지시 (선택)</label><textarea rows="2" data-vk="keepLenText" placeholder="예: 최소 4문단, 감각 묘사와 인물의 속마음을 포함"></textarea></div>${selRow('outLang', '이야기 출력 언어', [['ui', '화면 언어와 같게'], ['ko', '한국어'], ['en', 'English'], ['input', '내가 입력한 언어를 따라감 (영어로 입력하면 영어로 답해요)'], ['chat', '채팅 기록을 따라감']], '기존 채팅이 영어여도 한국어를 고르면 모델이 한국어로 쓰도록 강하게 지시해요. 선택지와 상태 정보도 같은 언어예요. 「내가 입력한 언어를 따라감」은 최근에 쓴 내 글이 영어면 영어로, 한글이면 한글로 이야기를 써요. 화면(UI)은 계속 한글이에요.')}${chk('translateInput', '내가 다른 언어로 입력하면 출력 언어로 번역해서 전송 (모델 1회)', '예: 한국어로 입력했는데 출력 언어가 English이면 영어로 번역한 문장이 SillyTavern에 기록돼요.')}`)}
       ${sec('일상 모드', `<div class="vn-opt"><label class="vn-lbl">이벤트 씨앗 (한 줄에 하나)</label><textarea rows="5" data-vk="dailySeeds"></textarea></div><div class="vn-opt"><label class="vn-lbl">인카운터 씨앗 (한 줄에 하나)</label><textarea rows="5" data-vk="encSeeds"></textarea><p class="vn-opt-h">하루 계획을 만들 때 이 중 일부가 무작위로 들어가 혼자 있는 시간·NPC·우연한 만남을 풍성하게 해요.</p></div>${numRow('encCount', '하루에 넣을 인카운터 수', 0, 4)}`)}
@@ -2111,7 +2110,7 @@ IMPORTANT: absolutely no text, letters, numbers, labels, signs with writing, leg
         <div class="vn-opt"><label class="vn-lbl">제외 요소 (이런 건 그리지 않기)</label><input type="text" data-vk="negative" placeholder="예: text, watermark, extra fingers"></div>
         <div class="vn-opt"><label class="vn-lbl">배경 화풍 (비우면 위 화풍 사용)</label><textarea rows="2" data-vk="style"></textarea></div>
         ${chk('lookVision', '외형 태그를 뽑을 때 카드 PNG 이미지도 함께 보내기', 'Gemini 모델로 이미지를 먼저 보고, 설명은 빈틈을 채워요.')}${`<div class="vn-opt"><label class="vn-lbl">외형 추출 모델 (Gemini)</label><input type="text" data-vk="lookModel"></div>`}`)}
-      ${sec('저장 공간', `${chk('deleteFiles', '이미지를 지울 때 서버 파일도 함께 지우기', '다른 곳에서 쓰지 않는 VN Studio 이미지(user/images/vnstudio)만 지워요. 이 서버가 삭제를 지원하지 않으면 파일은 그대로 남아요.')}<div class="vn-row tight"><button class="vn-btn sm" data-act="clean-scan">쓰지 않는 표정·NPC 이미지 찾아서 정리</button></div>`)}
+      ${sec('저장 공간', `${chk('deleteFiles', '이미지를 지울 때 서버 파일도 함께 지우기', '다른 곳에서 쓰지 않는 VN Studio 이미지(user/images/vnstudio)만 지워요. 이 서버가 삭제를 지원하지 않으면 파일은 그대로 남아요.')}<div class="vn-row tight"><button class="vn-btn sm" data-act="clean-scan">쓰지 않는 표정·NPC 이미지 찾아서 정리</button><button class="vn-btn sm" data-act="img-manage">저장된 이미지 보기·삭제</button></div><p class="vn-opt-h">이미지는 SillyTavern 폴더의 data/(사용자 폴더, 보통 default-user)/user/images/vnstudio 에 저장돼요.</p>`)}
       <div class="vn-row"><button class="vn-btn" data-act="show-prompt">모델에 보내는 지시문 보기</button><button class="vn-btn danger" data-act="reset-aff">이 채팅 호감도 초기화</button></div>`;
   }
   function fillInputs(root) {
@@ -2331,7 +2330,7 @@ IMPORTANT: absolutely no text, letters, numbers, labels, signs with writing, leg
     const log = msgs.slice(-60).map((m) => `${m.name}: ${parseBlock(m.mes).text.replace(/\s+/g, ' ').slice(0, 350)}`).join('\n').slice(-15000);
     const cast = castList().map((x) => x.name).join(', ') || ch?.name || '';
     const prompt = `Do NOT roleplay. Read the roleplay log and extract the NAMED non-main characters (NPCs) who appear or are talked about. Reply with ONLY JSON:
-{"npcs":[{"name":"exact name","role":"short role or relationship","desc":"one short line on appearance and personality","species":"empty string if a human; otherwise the English species or breed if this is an animal or creature (e.g. orange tabby cat)","summary":"1-2 ${DLN()} sentences about this person's relationship to ${c.name1} and ${cast}","facts":{"<short ${DLN()} label such as ${STD_FACTS.join(', ')}>":"<value>"}}]}
+{"npcs":[{"name":"exact name","role":"short role or relationship","desc":"one short line on appearance and personality","summary":"1-2 ${DLN()} sentences about this person's relationship to ${c.name1} and ${cast}","facts":{"<short ${DLN()} label such as ${STD_FACTS.join(', ')}>":"<value>"}}]}
 Rules: at most 10 npcs. Never include ${c.name1} or ${cast}. "facts" only holds things the log actually established (omit unknown items, values under 60 characters). Keep the exact names of already known NPCs: ${meta.npcs.map((n) => n.name).join(', ') || 'none'}. Write texts in ${DLN()}.
 [Main character card: ${cast}]
 ${String(ch?.description || '').slice(0, 1500)}
@@ -2344,7 +2343,7 @@ ${log}`;
       const name = String(it?.name || '').trim().slice(0, 20); if (!name || name === c.name1 || castList().some((x) => x.name === name)) continue;
       let n = meta.npcs.find((x) => x.name.toLowerCase() === name.toLowerCase());
       if (!n) { n = { name, role: '', desc: '' }; meta.npcs.push(n); added++; } else updated++;
-      n.role = n.role || String(it.role || '').slice(0, 20); n.desc = n.desc || String(it.desc || '').slice(0, 120); if (!n.species && it.species && !/^(human|person|사람|인간)$/i.test(String(it.species).trim())) n.species = String(it.species).trim().slice(0, 40);
+      n.role = n.role || String(it.role || '').slice(0, 20); n.desc = n.desc || String(it.desc || '').slice(0, 120);
       if (it.summary) n.summary = String(it.summary).slice(0, 300);
       n.facts ||= {}; for (const [k, v] of Object.entries(it.facts || {})) if (k && v) n.facts[String(k).slice(0, 14)] = String(v).slice(0, 90);
     }
@@ -2369,37 +2368,49 @@ ${log}`;
     if (Array.isArray(cb)) for (const e of cb) { if (e.enabled === false) continue; push('(카드 내장)', e, e.keys, e.constant); }
     return out.sort((a, b) => (b.constant ? 1 : 0) - (a.constant ? 1 : 0));
   }
+  /* 카드·로어북 분석: 로어북이 길어도 빠짐없이 읽도록 여러 번에 나눠 보낸다. 외형 태그는 채우지 않고 설명(메모)만 채운다 */
   async function analyzeNpcsFromSources(ch) {
     const meta = M(), c = ctx(), cast = castList().map((x) => x.name).join(', ') || ch?.name || '';
     const entries = await loreEntriesAll(ch);
     const cardText = castList().map((x) => `[Card: ${x.name}]\n${String(x.description || '').slice(0, 2500)}\n${String(x.personality || '').slice(0, 600)}\n${String(x.scenario || '').slice(0, 1200)}`).join('\n\n') || String(ch?.description || '').slice(0, 2500);
-    let lore = '', used = 0;
-    for (const e of entries) { const line = `- ${e.constant ? '[ALWAYS ON] ' : ''}${e.title || e.keys[0] || '(no title)'}${e.keys.length ? ` (keys: ${e.keys.join(', ')})` : ''}: ${e.text.slice(0, 520)}\n`; if (lore.length + line.length > 28000) break; lore += line; used++; }
-    if (!lore && !cardText.trim()) throw new Error('카드 설명도 로어북도 찾지 못했어요. 이 채팅에 로어북이 연결돼 있는지 확인해 주세요.');
-    const known = meta.npcs.map((n) => n.name).join(', ') || 'none';
-    const prompt = `Do NOT roleplay. Read the character card and the lorebook entries below and extract the NAMED individual people (NPCs) that exist in this story world, other than the main character(s) and the user.
-Entries marked [ALWAYS ON] are always-active lorebook entries and often describe important NPCs, but also use the other entries and the card. Reply with ONLY JSON:
-{"npcs":[{"name":"exact name as written","aliases":["short names or nicknames used in the text"],"role":"short role or relationship","desc":"one short line on appearance and personality","species":"empty string if a human; otherwise the English species or breed if this is an animal or creature (e.g. orange tabby cat)","look":"comma-separated English visual tags for appearance and outfit, ONLY if the text states them, otherwise empty string","summary":"1-2 ${DLN()} sentences about this person's relationship to ${c.name1} and ${cast}","facts":{"<short ${DLN()} label such as ${STD_FACTS.join(', ')}>":"<value>"}}]}
-Rules: list every qualifying person (up to 80). Only individual people or beings who can talk. Never include places, items, factions, organizations, rules or world settings. Never include ${c.name1} or ${cast}. "facts" only holds things the text states (omit unknown items, values under 60 characters). Keep the exact names of already known NPCs: ${known}. Write texts in ${DLN()}.
-${cardText}
-
-[Lorebook]
-${lore || '(none)'}`;
-    const d = parseJSON(await llm(prompt, 8000, 'NPC 분석 (카드·로어북)'));
-    if (!d || !Array.isArray(d.npcs)) throw new Error('결과를 읽지 못했어요');
-    let added = 0, updated = 0;
-    for (const it of d.npcs.slice(0, 80)) {
-      const name = String(it?.name || '').trim().slice(0, 24); if (!name || sameName(name, c.name1) || castList().some((x) => sameName(x.name, name))) continue;
-      let n = meta.npcs.find((x) => sameName(x.name, name));
-      if (!n) { n = { name, role: '', desc: '' }; meta.npcs.push(n); added++; } else updated++;
-      n.role = n.role || String(it.role || '').slice(0, 24); n.desc = n.desc || String(it.desc || '').slice(0, 140); if (!n.species && it.species && !/^(human|person|사람|인간)$/i.test(String(it.species).trim())) n.species = String(it.species).trim().slice(0, 40);
-      if (it.summary && !n.summary) n.summary = String(it.summary).slice(0, 300);
-      if (it.look && !n.look) { const lk = cleanLook(String(it.look)); if (lk && lk.length >= 10) n.look = lk.slice(0, 600); }
-      const al = (Array.isArray(it.aliases) ? it.aliases : []).map((x) => String(x).trim().slice(0, 20)).filter((x) => x.length >= 2 && !sameName(x, name));
-      if (al.length) n.aliases = [...new Set([...(n.aliases || []), ...al])].slice(0, 5);
-      n.facts ||= {}; for (const [k, v] of Object.entries(it.facts || {})) if (k && v && !n.facts[String(k).slice(0, 14)]) n.facts[String(k).slice(0, 14)] = String(v).slice(0, 90);
+    const batches = []; let cur = '';
+    for (const e of entries) {
+      const ln = `- ${e.constant ? '[ALWAYS ON] ' : ''}${e.title || e.keys[0] || '(no title)'}${e.keys.length ? ` (keys: ${e.keys.join(', ')})` : ''}: ${e.text.slice(0, 600)}\n`;
+      if (cur && cur.length + ln.length > 11000) { batches.push(cur); cur = ''; }
+      cur += ln;
     }
-    saveMeta(); return { added, updated, scanned: used, constant: entries.filter((e) => e.constant).length };
+    if (cur) batches.push(cur);
+    if (!batches.length && !cardText.trim()) throw new Error('카드 설명도 로어북도 찾지 못했어요. 이 채팅에 로어북이 연결돼 있는지 확인해 주세요.');
+    if (!batches.length) batches.push('');
+    let added = 0, updated = 0, failed = 0, firstErr = null;
+    for (let bi = 0; bi < batches.length; bi++) {
+      ui.status(`카드·로어북에서 NPC를 찾는 중… (${bi + 1}/${batches.length})`);
+      const known = meta.npcs.map((n) => n.name).join(', ').slice(0, 2500) || 'none';
+      const prompt = `Do NOT roleplay. Read the material below (part ${bi + 1} of ${batches.length}) and extract the NAMED individual people (NPCs) that exist in this story world, other than the main character(s) and the user.
+Entries marked [ALWAYS ON] are always-active lorebook entries and often describe important NPCs. List every qualifying person in THIS part. Reply with ONLY JSON:
+{"npcs":[{"name":"exact name as written","aliases":["short names or nicknames used in the text"],"role":"short role or relationship","desc":"one short ${DLN()} line copying what the text itself says about this person (role, looks, personality); do not invent anything","summary":"1-2 ${DLN()} sentences about this person's relationship to ${c.name1} and ${cast}","facts":{"<short ${DLN()} label such as ${STD_FACTS.join(', ')}>":"<value>"}}]}
+Rules: Only individual people or beings who can talk. Never include places, items, factions, organizations, rules or world settings. Never include ${c.name1} or ${cast}. "facts" only holds things the text states (omit unknown items, values under 60 characters). Already known NPCs (use these exact names; list them again only if this part adds new facts): ${known}. Write texts in ${DLN()}.
+${bi === 0 ? cardText : ''}
+
+[Lorebook part ${bi + 1}/${batches.length}]
+${batches[bi] || '(none)'}`;
+      let d = null;
+      try { d = parseJSON(await llm(prompt, 6000, `NPC 분석 (카드·로어북 ${bi + 1}/${batches.length})`)); } catch (e) { firstErr ||= e; }
+      if (!d || !Array.isArray(d.npcs)) { failed++; continue; }
+      for (const it of d.npcs.slice(0, 80)) {
+        const name = String(it?.name || '').trim().slice(0, 24); if (!name || sameName(name, c.name1) || castList().some((x) => sameName(x.name, name))) continue;
+        let n = meta.npcs.find((x) => sameName(x.name, name));
+        if (!n) { n = { name, role: '', desc: '' }; meta.npcs.push(n); added++; } else updated++;
+        n.role = n.role || String(it.role || '').slice(0, 24); n.desc = n.desc || String(it.desc || '').slice(0, 160);
+        if (it.summary && !n.summary) n.summary = String(it.summary).slice(0, 300);
+        const al = (Array.isArray(it.aliases) ? it.aliases : []).map((x) => String(x).trim().slice(0, 20)).filter((x) => x.length >= 2 && !sameName(x, name));
+        if (al.length) n.aliases = [...new Set([...(n.aliases || []), ...al])].slice(0, 5);
+        n.facts ||= {}; for (const [k, v] of Object.entries(it.facts || {})) if (k && v && !n.facts[String(k).slice(0, 14)]) n.facts[String(k).slice(0, 14)] = String(v).slice(0, 90);
+      }
+      saveMeta();
+    }
+    if (failed === batches.length) throw firstErr || new Error('결과를 읽지 못했어요');
+    return { added, updated, scanned: entries.length, constant: entries.filter((e) => e.constant).length, batches: batches.length, failed };
   }
   async function analyzeHistory(ch, force = false) {
     const meta = M(), c = ctx();
@@ -2702,43 +2713,16 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
     (meta.gallery || []).forEach((e) => { if (e.url && !String(e.url).startsWith('blob:')) out.add(e.url); });
     return [...out];
   }
-  /* 외형 태그: 기준 사진이 있으면 사진을 먼저 보고(설명·로어북은 사진이 못 보여 주는 것만 보조), 없을 때만 자료로 뽑는다 */
+  /* 외형 태그: 기준 이미지를 보고 추측해서만 만든다. 설명·로어북·채팅 기록은 쓰지 않는다(사진과 다른 사람이 나오는 걸 막음). 사람·동물 모두 같다 */
   async function npcLookTags(n, ch, force = false) {
-    const photo = npcBaseUrl(n) || (force && n.img ? n.img : '');
-    const stale = !!(photo && n.look && n.lookSrc !== 'manual' && n.lookPhoto !== photo);
-    if (n.look && !force && !stale) return { text: n.look, source: '저장된 외형 태그' };
-    if (photo && S().geminiKey.trim()) {
-      try {
-        const img = await refInline(photo, 1024);
-        if (img) {
-          const src = await npcSources(n, ch).catch(() => ({ card: [], lore: '', chat: [] })), parts = [];
-          if (n.role) parts.push(`[Role] ${n.role}`); if (n.desc) parts.push(`[Notes] ${n.desc}`);
-          if (src.card.length) parts.push(`[Character card mentions]\n- ${src.card.join('\n- ')}`);
-          if (src.lore) parts.push(`[Lorebook]\n${src.lore}`);
-          if (src.chat.length) parts.push(`[Chat mentions]\n- ${src.chat.join('\n- ')}`);
-          const out = cleanLook(await geminiText(`The attached image is the reference photo of the person or creature named "${n.name}". The IMAGE is the primary source: describe exactly what you can SEE. If it is a person: apparent age, gender, ethnicity and skin tone, face shape, hair color/length/style, eye color, build, clothing and accessories. If it is an animal or creature: the species or breed, fur or feather color and pattern, size and distinctive markings. Use the written material below ONLY to fill details the image cannot show (for example a stated ethnicity or age when the image is ambiguous) and NEVER let it contradict the image.\nWrite ONE line of comma-separated English visual tags, under 55 words. No names, no personality. Output only that line.\n\n${parts.join('\n\n').slice(0, 3500)}`, [img], `NPC 외형 태그 (사진 우선: ${n.name})`));
-          if (out && out.length >= 15) { n.look = out.slice(0, 600); n.lookSrc = 'photo'; n.lookPhoto = photo; saveMeta(); return { text: n.look, source: '기준 사진 우선 (설명은 보조)' }; }
-        }
-      } catch (e) { console.warn('[VN] NPC 사진 외형 추출 실패, 자료 기준으로 대체', e); }
-    }
     if (n.look && !force) return { text: n.look, source: '저장된 외형 태그' };
-    const r = await npcLookTagsText(n, ch, true);
-    if (r.text) { n.lookSrc = 'text'; delete n.lookPhoto; saveMeta(); }
-    return r;
-  }
-  async function npcLookTagsText(n, ch, force = false) {
-    if (n.look && !force) return { text: n.look, source: '저장된 외형 태그' };
-    const src = await npcSources(n, ch), parts = [];
-    if (n.role) parts.push(`[Role] ${n.role}`); if (n.desc) parts.push(`[Notes] ${n.desc}`);
-    if (src.card.length) parts.push(`[Character card mentions]\n- ${src.card.join('\n- ')}`);
-    if (src.lore) parts.push(`[Lorebook]\n${src.lore}`);
-    if (src.chat.length) parts.push(`[Chat mentions]\n- ${src.chat.join('\n- ')}`);
-    const source = (src.card.length || src.lore) ? '카드·로어북' : src.chat.length ? '채팅 기록' : n.desc ? '설명' : '';
-    if (!source) return { text: '', source: '' };
-    const raw = await llm(`Do NOT roleplay. From the material below about the person named "${n.name}", write ONE line of comma-separated English visual tags describing only the physical appearance and outfit (age impression, gender, hair, eyes, skin, build, clothing, accessories). Use what the material states or clearly implies; where it says nothing, choose plausible fitting details. No names, no personality, under 45 words. Output only that line.\n\n${parts.join('\n\n')}`, 1024, `NPC 외형 추출 (${n.name})`);
-    const one = cleanLook(raw) || String(raw).trim().replace(/\s*\n+\s*/g, ' ').slice(0, 600);
-    if (one.length >= 15) { n.look = one.slice(0, 600); saveMeta(); return { text: n.look, source }; }
-    return { text: '', source };
+    const photo = npcBaseUrl(n) || n.img || '';
+    if (!photo) return { text: '', source: '', reason: 'no-image' };
+    if (!S().geminiKey.trim()) return { text: '', source: '', reason: 'no-key' };
+    const img = await refInline(photo, 1024); if (!img) return { text: '', source: '', reason: 'no-load' };
+    const out = cleanLook(await geminiText(`The attached image is the ONLY source. Look at it and describe what you SEE of the subject named "${n.name}": a person, an animal or a creature. Do not use any outside information and do not invent a backstory. Write ONE line of comma-separated English visual tags under 55 words, with the kind of subject as the FIRST tag ("human" for a person, otherwise the animal species or breed). For a person then give: apparent age, gender, ethnicity and skin tone, face, hair color/length/style, eye color, build, clothing, accessories. For an animal or creature give: fur, feather or skin color and pattern, size, distinctive markings, collar or other accessories. No names, no personality. Output only that line.`, [img], `NPC 외형 태그 (이미지: ${n.name})`));
+    if (out && out.length >= 15) { n.look = out.slice(0, 600); n.lookSrc = 'photo'; n.lookPhoto = photo; saveMeta(); return { text: n.look, source: '이미지' }; }
+    return { text: '', source: '', reason: 'empty' };
   }
   /* NPC 기준 사진: 내가 고르거나 올린 이미지 → (옛 참고 사진) → 같은 이름의 SillyTavern 캐릭터 카드 이미지. AI가 만든 이미지는 기준으로 쓰지 않는다 */
   function npcBaseUrl(n) {
@@ -2748,34 +2732,25 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
     const hit = (ctx().characters || []).find((x) => x?.avatar && x.name && sameName(x.name, n.name));
     return hit ? '/characters/' + encodeURIComponent(hit.avatar) : '';
   }
-  /* 종류: 직접 적은 값 우선, 없으면 역할·설명에서 동물 단어만 조심스럽게 추정 (사람 표현이 있으면 사람) */
-  const NPC_ANIMALS = [[/고양이|냥이|\bcat\b|kitten/i, 'cat'], [/강아지|댕댕|\bdog\b|puppy/i, 'dog'], [/토끼|rabbit|bunny/i, 'rabbit'], [/햄스터|hamster/i, 'hamster'], [/앵무|parrot/i, 'parrot'], [/거북|turtle|tortoise/i, 'turtle'], [/고슴도치|hedgehog/i, 'hedgehog'], [/여우|\bfox\b/i, 'fox'], [/늑대|\bwolf\b/i, 'wolf'], [/금붕어|물고기/i, 'fish']];
-  const NPC_HUMANISH = /수인|귀가 있|꼬리가 있|소년|소녀|남자|여자|청년|아저씨|아줌마|할머니|할아버지|사람|인간|\bhuman\b|\bboy\b|\bgirl\b|\bman\b|\bwoman\b|catboy|catgirl|beastkin/i;
-  function npcSpecies(n) {
-    const sp = String(n?.species || '').trim();
-    if (sp) return /^(human|person|사람|인간)$/i.test(sp) ? '' : sp;
-    const tx = `${n?.role || ''} ${n?.desc || ''}`;
-    if (!tx.trim() || NPC_HUMANISH.test(tx)) return '';
-    for (const [re, en] of NPC_ANIMALS) if (re.test(tx)) return en;
-    return '';
-  }
+  /* 동물 여부: 이미지에서 뽑은 외형 태그의 맨 앞 태그로만 판단한다 */
+  const NPC_ANIMAL_RE = /\b(cat|kitten|dog|puppy|rabbit|bunny|hamster|parrot|bird|turtle|tortoise|hedgehog|fox|wolf|fish|horse|pony|cow|pig|sheep|goat|mouse|rat|squirrel|duck|chicken|owl|snake|lizard|animal|creature|pet)\b/i;
+  const NPC_HUMAN_RE = /\b(human|man|woman|boy|girl|person|male|female|adult|teen|teenager|child|catboy|catgirl)\b/i;
+  function npcIsAnimal(n) { const first = String(n?.look || '').split(',').slice(0, 2).join(' '); return !!first && NPC_ANIMAL_RE.test(first) && !NPC_HUMAN_RE.test(first); }
   async function genNpcImage(n, ch) {
-    const s = S(), refs = [], notes = [], photo = npcBaseUrl(n), sp = npcSpecies(n);
-    if (photo) { const r = await refInline(photo, 1280); if (r) { refs.push(r); notes.push(`Reference image ${refs.length} is the PHOTO of "${n.name}" and the primary source. Keep EXACTLY the same ${sp ? 'species, fur or feather color and pattern, markings and proportions' : 'face, ethnicity, skin tone, hair color and style, eye color, age, build, clothing and accessories'}. If any text below disagrees with this photo, the photo wins.`); } }
+    const s = S(), refs = [], notes = [], photo = npcBaseUrl(n), tags = String(n.look || '').trim(), animal = npcIsAnimal(n);
+    if (photo) { const r = await refInline(photo, 1280); if (r) { refs.push(r); notes.push(`Reference image ${refs.length} is the PHOTO of "${n.name}" and the ONLY source for what the subject looks like (a person, an animal or a creature). Keep EXACTLY the same kind of subject, face or head, ethnicity, skin tone, fur or hair color and pattern, age, build, clothing and accessories. Do not change anything because of text.`); } }
     const hasPhoto = refs.length > 0;
-    if (ch) { const r = await charRefs(ch, outfitOf(ch), 1); if (r.refs[0]) { refs.push(r.refs[0]); notes.push(`Reference image ${refs.length} shows ONLY the art style, rendering, lighting and color grading of this visual novel. The subject must be a DIFFERENT person than the one in this image.`); } }
+    if (ch && s.npcStyleRef) { const r = await charRefs(ch, outfitOf(ch), 1); if (r.refs[0]) { refs.push(r.refs[0]); notes.push(`Reference image ${refs.length} shows ONLY the art style, rendering, lighting and color grading of this visual novel. The subject must be a completely different individual: do NOT copy this person's face, hair, clothing or accessories.`); } }
     const bgUrl = bgFor(M().loc || '')?.url;
     if (bgUrl) { const r = await refInline(bgUrl, 768); if (r) { refs.push(r); notes.push(`Reference image ${refs.length} is the current background: match its color grading and light, but do NOT draw this scene.`); } }
-    let lk = { text: '', source: '' };
-    try { lk = await npcLookTags(n, ch); } catch (e) { console.warn('[VN] NPC 외형 추출 실패', e); }
     const worldLook = String(ssWorld()?.look || '').slice(0, 200);
-    const appearance = lk.text ? ` (${lk.text})` : (n.desc ? `. ${n.desc}` : `. No appearance is specified, so invent a distinctive, fitting look for this role${worldLook ? ` in this world: ${worldLook}` : ''}`);
-    st.lastNpcSrc = hasPhoto ? `기준 사진${lk.text ? ' + ' + (lk.source || '외형 태그') : ''}` : (lk.source || (n.desc ? '설명' : '자료 없음 (AI가 역할에 맞게 설계)'));
-    const subject = sp ? `a ${sp} named "${n.name}": a real animal, NOT a human, NOT anthropomorphic, with no human body, face or clothing unless stated` : `an NPC named "${n.name}"`;
-    const shot = sp ? 'full-body view' : 'waist-up portrait';
-    const pose = sp ? "Natural animal pose, head turned slightly toward the viewer's LEFT." : "Natural expressive pose, three-quarter view with the body and face turned slightly toward the viewer's LEFT.";
-    const prompt = `${notes.join(' ')}\nGenerate one image: a visual novel sprite, ${shot} of ${subject}${n.role ? `, ${n.role}` : ''}${appearance}.${hasPhoto ? ' The photo reference decides the look; the tags only supplement it.' : ''} ${pose} Rendering style: ${styleMain()}. Match EXACTLY the rendering style, level of realism, lighting and color grading of the style references (if they are photorealistic, make this photorealistic too, NOT anime or illustration). Background: plain flat solid pure white, no floor, no shadow, no gradient. Single subject, no text, no watermark.`;
-    let url = await geminiGenerate(prompt, refs, sp ? '1:1' : '3:4', 'vngen_', `NPC ${n.name}`);
+    const appearance = tags ? ` (${tags})` : (hasPhoto ? '' : (n.desc ? `. ${n.desc}` : `. No appearance is specified, so invent a distinctive, fitting look for this role${worldLook ? ` in this world: ${worldLook}` : ''}`));
+    st.lastNpcSrc = hasPhoto ? `기준 이미지${tags ? ' + 외형 태그' : ''}` : (tags ? '외형 태그' : (n.desc ? '설명' : '자료 없음 (AI가 역할에 맞게 설계)'));
+    const subject = hasPhoto && !tags ? 'the subject shown in the photo reference (a person, an animal or a creature, exactly as in the photo)' : (animal ? `an animal named "${n.name}": a real animal, NOT a human, NOT anthropomorphic` : `an NPC named "${n.name}"`);
+    const shot = animal ? 'full-body view' : (hasPhoto && !tags ? 'natural framing (waist-up for a person, full body for an animal)' : 'waist-up portrait');
+    const pose = animal ? "natural animal pose, head turned slightly toward the viewer's LEFT" : "natural expressive pose, three-quarter view with the body and face turned slightly toward the viewer's LEFT";
+    const prompt = `${notes.join(' ')}\nGenerate one image: a visual novel sprite, ${shot} of ${subject}${!hasPhoto && n.role ? `, ${n.role}` : ''}${appearance}.${hasPhoto ? ' The photo reference decides the look; the tags (if any) only supplement it.' : ''} ${pose}. Rendering style: ${styleMain()}. Match EXACTLY the rendering style, level of realism, lighting and color grading described above and in the references (if photorealistic, make this photorealistic too, NOT anime or illustration). Background: plain flat solid pure white, no floor, no shadow, no gradient. Single subject, no text, no watermark.`;
+    let url = await geminiGenerate(prompt, refs, animal ? '1:1' : '3:4', 'vngen_', `NPC ${n.name}`);
     if (s.cutout) { try { const c = await cutoutImage(url); if (c.url) { const orig = url; url = c.url; dropImage(orig); } } catch { /* 원본 유지 */ } }
     n.faces = 'left';   // 위 지시대로 왼쪽을 보게 만들었으니 기록해 둔다 (NPC 탭에서 바꿀 수 있어요)
     return url;
@@ -2790,17 +2765,40 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
     Object.values(s.places || {}).forEach((p) => add(p.url));
     const m = ctx().chatMetadata?.[MODULE]; if (m) { (m.gallery || []).forEach((e) => { add(e.url); add(e.video); }); (m.npcs || []).forEach((n) => { add(n.img); add(n.photo); add(n.base); }); (m.mapHist || []).forEach((e) => add(e.url)); }
     Object.values(ctx().chatMetadata?.minimap?.world?.maps || {}).forEach((mp) => add(mp?.url));   // 지도 이미지
+    for (const [k, v] of Object.entries(s.cutOrig || {})) if (set.has(k)) set.add(v);   // 배경 제거 전 원본(되돌리기용)
     return set;
   }
   /* 목록에서 지운 이미지가 다른 곳에서 쓰이지 않으면 서버 파일도 지운다 (가능한 경우에만) */
-  async function dropImage(url) {
+  async function deleteServerFile(url) {
     try {
-      if (!S().deleteFiles || !url || !IMG_RE.test(url) || allImageRefs().has(url)) return false;
+      if (!url || !IMG_RE.test(url)) return false;
       const rel = String(url).replace(/^\/+/, '');
       for (const body of [{ path: rel }, { path: '/' + rel }]) { const r = await fetch('/api/images/delete', { method: 'POST', headers: ctx().getRequestHeaders(), body: JSON.stringify(body) }); if (r.ok) return true; }
     } catch { /* 지울 수 없으면 그대로 둔다 */ }
     return false;
   }
+  async function dropImage(url) {
+    if (!S().deleteFiles || !url || !IMG_RE.test(url) || allImageRefs().has(url)) return false;
+    return deleteServerFile(url);
+  }
+  /* 이미지 한 장을 쓰이는 모든 곳에서 떼어내고 서버 파일도 지운다 (사용자가 직접 지우겠다고 한 경우) */
+  async function purgeImage(url) {
+    const s = S(), meta = M(); let refs = 0;
+    for (const c of Object.values(s.chars || {})) {
+      if (c.profile === url) { delete c.profile; refs++; }
+      for (const o of Object.values(c.outfits || {})) { if (o.base === url) { o.base = ''; refs++; } for (const [k, v] of Object.entries(o.emo || {})) if (v === url) { delete o.emo[k]; refs++; } }
+    }
+    for (const by of Object.values(s.placesBy || {})) for (const pl of Object.values(by)) if (pl?.url === url) { pl.url = ''; refs++; }
+    for (const pl of Object.values(s.places || {})) if (pl?.url === url) { pl.url = ''; refs++; }
+    for (const n of meta.npcs || []) for (const f of ['img', 'base', 'photo']) if (n[f] === url) { delete n[f]; refs++; if (f === 'img') delete n.imgAi; }
+    meta.gallery = (meta.gallery || []).filter((e) => { if (e.url === url) { refs++; return false; } return true; });
+    for (const [k, v] of Object.entries(s.cutOrig || {})) if (k === url || v === url) delete s.cutOrig[k];
+    saveSettings(); saveMeta();
+    await deleteServerFile(url);
+    return refs;
+  }
+  /* 선택 화면의 이미지 한 칸: 사진을 누르면 크게 보기, [선택]으로 고르기, 🗑로 완전 삭제. 투명 배경도 보이게 체크무늬 */
+  const pickTile = (u, selAct, badge = '') => `<div class="vn-pickitem" data-u="${esc(u)}"><img loading="lazy" decoding="async" src="${esc(u)}" alt="" title="클릭하면 크게 보기" onerror="this.parentNode.classList.add('broken')"><small class="vn-pk-bad">파일 없음</small>${badge ? `<small class="vn-pk-badge ${badge === '미사용' ? 'unused' : ''}">${badge}</small>` : ''}<div class="vn-pickbtns">${selAct ? `<button class="vn-btn sm" data-act="${selAct}" data-u="${esc(u)}">선택</button>` : ''}<button class="vn-btn sm danger" data-act="img-purge" data-u="${esc(u)}" title="이 이미지를 쓰는 모든 곳에서 떼어내고 파일도 삭제">🗑</button></div></div>`;
   async function listVnImages() {
     const hdr = ctx().getRequestHeaders();
     for (const [u, b] of [['/api/images/list/vnstudio', {}], ['/api/images/list', { folder: 'vnstudio' }]]) {
@@ -2831,14 +2829,23 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
       case 'emo-cut': {
         const o = cd.outfits[ofName], l = el.dataset.l, url = o?.emo?.[l]; if (!url) return;
         ui.status('배경을 지우는 중…');
-        try { const c = await cutoutImage(url); if (c.url) { o.emo[l] = c.url; if (o.base === url) o.base = c.url; saveSettings(); dropImage(url); toastr.success('배경을 지웠어요'); } else toastr.warning(`배경이 균일하지 않아 지우지 못했어요 (인식 ${(c.ratio * 100).toFixed(0)}%). 설정의 배경 제거 민감도를 조절해 보세요.`); }
+        try { const c = await cutoutImage(url); if (c.url) { const root = s.cutOrig?.[url] || url; (s.cutOrig ||= {})[c.url] = root; delete s.cutOrig[url]; o.emo[l] = c.url; if (o.base === url) o.base = c.url; saveSettings(); if (root !== url) dropImage(url); toastr.success('배경을 지웠어요 (↩ 버튼으로 원본으로 되돌릴 수 있어요)'); } else toastr.warning(`배경이 균일하지 않아 지우지 못했어요 (인식 ${(c.ratio * 100).toFixed(0)}%). 설정의 배경 제거 민감도를 조절해 보세요.`); }
         catch (e) { toastr.error('배경 제거 실패: ' + (e.message || e)); }
         ui.status(''); return refresh();
       }
+      case 'emo-uncut': {
+        const o = cd.outfits[ofName], l = el.dataset.l, cur = o?.emo?.[l], orig = s.cutOrig?.[cur]; if (!orig) return;
+        o.emo[l] = orig; if (o.base === cur) o.base = orig; delete s.cutOrig[cur]; saveSettings(); dropImage(cur); toastr.success('원본으로 되돌렸어요'); return refresh();
+      }
+      case 'npc-uncut': {
+        const n = npcByName(st.npcSel), cur = n?.img, orig = s.cutOrig?.[cur]; if (!orig) return;
+        n.img = orig; if (n.base === cur) n.base = orig; delete s.cutOrig[cur]; saveMeta(); saveSettings(); dropImage(cur); toastr.success('원본으로 되돌렸어요'); return renderModal();
+      }
       case 'dos-reset': { const old = cd.profile; delete cd.profile; saveSettings(); dropImage(old); return renderModal(); }
       case 'dos-pick': {
+        st.pickKind = 'dos-pick';
         const imgs = [...new Set([cd.profile, ...Object.values(cd.outfits).flatMap((o) => [o.base, ...Object.values(o.emo || {})])].filter(Boolean))];
-        const body = ui.q('#vn-mbody'); body.insertAdjacentHTML('afterbegin', `<div class="vn-pickgrid" id="vn-pickgrid"><p class="vn-hint">대표로 쓸 이미지를 고르세요</p>${imgs.map((u) => `<button class="vn-pickitem" data-act="dos-pickset" data-u="${esc(u)}"><img src="${esc(u)}" alt=""></button>`).join('')}<button class="vn-btn sm" data-act="dos-pickclose">닫기</button></div>`); return;
+        const body = ui.q('#vn-mbody'); body.insertAdjacentHTML('afterbegin', `<div class="vn-pickgrid" id="vn-pickgrid"><p class="vn-hint">대표로 쓸 이미지를 고르세요 (사진을 누르면 크게 보여요)</p>${imgs.map((u) => pickTile(u, 'dos-pickset')).join('')}<button class="vn-btn sm" data-act="dos-pickclose">닫기</button></div>`); return;
       }
       case 'dos-pickset': cd.profile = el.dataset.u; saveSettings(); return renderModal();
       case 'dos-pickclose': return renderModal();
@@ -2851,23 +2858,36 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
       case 'sub-del': { const card = ch._parent || ch; if (!confirm(`'${el.dataset.name}' 인물을 목록에서 뺄까요? (만든 이미지는 서버에 남아요)`)) return; cdata(card).subs = subsOf(card).filter((x) => x !== el.dataset.name); saveSettings(); st.selChar = chKey(card); return renderModal(); }
       case 'npc-look': {
         const n = npcByName(st.npcSel); if (!n) return; el.disabled = true; ui.status('NPC 외형 근거를 찾는 중…');
-        try { const r = await npcLookTags(n, ch, true); toastr[r.text ? 'success' : 'warning'](r.text ? `외형 태그를 만들었어요 (근거: ${r.source})` : '카드·로어북·채팅 기록에서 이 인물의 외형 근거를 찾지 못했어요. 설명을 적어 주세요.'); } catch (e) { toastr.error('실패: ' + (e.message || e)); }
+        try { const r = await npcLookTags(n, ch, true); toastr[r.text ? 'success' : 'warning'](r.text ? `이미지를 보고 외형 태그를 만들었어요` : ({ 'no-image': '먼저 이미지 바꾸기 / 내 이미지에서 고르기로 이미지를 정해 주세요.', 'no-key': '이미지를 보려면 이미지 API 키가 필요해요.', 'no-load': '이미지를 불러오지 못했어요.' }[r.reason] || '모델이 태그를 주지 않았어요. 다시 시도해 주세요.')); } catch (e) { toastr.error('실패: ' + (e.message || e)); }
         ui.status(''); return renderModal();
       }
-      case 'npc-analyze-src': { el.disabled = true; ui.status('카드·로어북에서 NPC를 찾는 중…'); try { const r = await analyzeNpcsFromSources(ch); toastr.success(`NPC ${r.added}명을 추가하고 ${r.updated}명을 갱신했어요 (로어북 ${r.scanned}항목 읽음, 파란 점 ${r.constant}개)`); } catch (e) { toastr.error('분석 실패: ' + (e.message || e)); } ui.status(''); return renderModal(); }
+      case 'npc-analyze-src': { el.disabled = true; ui.status('카드·로어북에서 NPC를 찾는 중…'); try { const r = await analyzeNpcsFromSources(ch); toastr.success(`NPC ${r.added}명을 추가하고 ${r.updated}명을 갱신했어요 (로어북 ${r.scanned}항목 읽음, 파란 점 ${r.constant}개${r.batches > 1 ? `, ${r.batches}번에 나눠 분석${r.failed ? ` · ${r.failed}번 실패` : ''}` : ''})`); } catch (e) { toastr.error('분석 실패: ' + (e.message || e)); } ui.status(''); return renderModal(); }
       case 'npc-analyze': { el.disabled = true; ui.status('NPC를 분석하는 중…'); try { const n = await analyzeNpcs(ch); toastr.success(`NPC ${n.added}명을 추가하고 ${n.updated}명을 갱신했어요`); } catch (e) { toastr.error('분석 실패: ' + (e.message || e)); } ui.status(''); return renderModal(); }
       case 'npcfact-add': { const n = npcByName(st.npcSel); if (!n) return; const l = $q('#vn-nfl', ui.root).value.trim().slice(0, 14), v = $q('#vn-nfv', ui.root).value.trim().slice(0, 90); if (!l || !v) return; (n.facts ||= {})[l] = v; saveMeta(); return renderModal(); }
       case 'npcfact-del': { const n = npcByName(st.npcSel); if (n?.facts) { delete n.facts[el.dataset.l]; saveMeta(); } return renderModal(); }
       case 'npc-pick': {
-        const n = npcByName(st.npcSel); if (!n) return;
-        const body = ui.q('#vn-mbody'); body.insertAdjacentHTML('afterbegin', `<div class="vn-pickgrid" id="vn-pickgrid"><p class="vn-hint">'${esc(n.name)}'의 이미지로 쓸 사진을 고르세요 (기준 사진이 돼요)</p>${npcImgPool().map((u) => `<button class="vn-pickitem" data-act="npc-pickset" data-u="${esc(u)}"><img src="${esc(u)}" alt=""></button>`).join('')}<button class="vn-btn sm" data-act="npc-pickclose">닫기</button></div>`); return;
+        const n = npcByName(st.npcSel); if (!n) return; st.pickKind = 'npc-pick';
+        const body = ui.q('#vn-mbody'); body.insertAdjacentHTML('afterbegin', `<div class="vn-pickgrid" id="vn-pickgrid"><p class="vn-hint">'${esc(n.name)}'의 이미지로 쓸 사진을 고르세요 (사진을 누르면 크게 보이고, [선택]으로 고르면 기준 사진이 돼요)</p>${npcImgPool().map((u) => pickTile(u, 'npc-pickset')).join('')}<button class="vn-btn sm" data-act="npc-pickclose">닫기</button></div>`); return;
       }
-      case 'npc-pickset': { const n = npcByName(st.npcSel); if (n) { n.img = n.base = el.dataset.u; n.imgAi = false; delete n.lookPhoto; saveMeta(); } return renderModal(); }
+      case 'npc-pickset': { const n = npcByName(st.npcSel); if (n) { const o1 = n.img, o2 = n.base; n.img = n.base = el.dataset.u; n.imgAi = false; delete n.lookPhoto; if (n.lookSrc === 'photo') { n.look = ''; delete n.lookSrc; } saveMeta(); dropImage(o1); if (o2 !== o1) dropImage(o2); } return renderModal(); }
       case 'npc-pickclose': return renderModal();
+      case 'img-purge': {
+        if (!confirm('이 이미지를 쓰는 모든 곳(표정·NPC·이벤트 등)에서 떼어내고, 서버 파일도 지울까요? 되돌릴 수 없어요.')) return;
+        const n = await purgeImage(el.dataset.u); toastr.success(`삭제했어요 (연결 ${n}곳 정리)`);
+        const kind = st.pickKind; await renderModal(); if (kind) return modalAction(kind, el); return;
+      }
+      case 'img-manage': {
+        st.pickKind = 'img-manage'; el.disabled = true; ui.status('저장된 이미지 목록을 불러오는 중…');
+        const files = await listVnImages(); ui.status(''); el.disabled = false;
+        if (!files) return toastr.warning('이 서버에서는 이미지 목록을 가져올 수 없어요. 폴더(data/사용자폴더/user/images/vnstudio)를 직접 확인해 주세요.');
+        const refs = allImageRefs(), urls = files.map((f) => '/user/images/vnstudio/' + f.split('/').pop()).reverse(), used = urls.filter((u) => refs.has(u)).length;
+        const body = ui.q('#vn-mbody'); body.querySelector('#vn-pickgrid')?.remove();
+        body.insertAdjacentHTML('afterbegin', `<div class="vn-pickgrid big" id="vn-pickgrid"><p class="vn-hint">이미지 ${urls.length}개 · 지금 이 채팅/설정에서 쓰는 ${used}개 · 안 쓰는 ${urls.length - used}개. 파일은 SillyTavern 폴더의 data/(사용자 폴더, 보통 default-user)/user/images/vnstudio 에 있어요. 파일이 많아도 생성 속도엔 영향이 없고 저장 공간만 차지해요. 다른 채팅에서 쓰는 이미지도 '미사용'으로 보일 수 있으니, 사진을 눌러 크게 보고 지우세요.</p>${urls.map((u) => pickTile(u, '', refs.has(u) ? '사용 중' : '미사용')).join('')}<button class="vn-btn sm" data-act="npc-pickclose">닫기</button></div>`); return;
+      }
       case 'npc-open': st.npcSel = el.dataset.name; return renderModal();
       case 'npc-del': { if (!confirm('이 인물을 삭제할까요?')) return; { const gone = meta.npcs.find((n) => n.name === st.npcSel); meta.npcs = meta.npcs.filter((n) => n.name !== st.npcSel); st.npcSel = ''; saveMeta(); dropImage(gone?.img); } return renderModal(); }
       case 'npc-imgdel': { const n = npcByName(st.npcSel); if (n) { const old = n.img; delete n.img; saveMeta(); dropImage(old); } return renderModal(); }
-      case 'npc-cut': { const n = npcByName(st.npcSel); if (!n?.img) return; ui.status('배경을 지우는 중…'); try { const c = await cutoutImage(n.img); if (c.url) { const old = n.img; n.img = c.url; saveMeta(); dropImage(old); } else toastr.warning('배경이 균일하지 않아 지우지 못했어요.'); } catch (e) { toastr.error('실패: ' + (e.message || e)); } ui.status(''); return renderModal(); }
+      case 'npc-cut': { const n = npcByName(st.npcSel); if (!n?.img) return; ui.status('배경을 지우는 중…'); try { const c = await cutoutImage(n.img); if (c.url) { const old = n.img, root = s.cutOrig?.[old] || old; (s.cutOrig ||= {})[c.url] = root; delete s.cutOrig[old]; n.img = c.url; saveMeta(); saveSettings(); if (root !== old) dropImage(old); toastr.success('배경을 지웠어요 (↩ 버튼으로 원본으로 되돌릴 수 있어요)'); } else toastr.warning('배경이 균일하지 않아 지우지 못했어요.'); } catch (e) { toastr.error('실패: ' + (e.message || e)); } ui.status(''); return renderModal(); }
       case 'npc-gen': {
         const n = npcByName(st.npcSel); if (!n) return;
         if (!s.geminiKey.trim()) return toastr.warning('이미지 API 키를 먼저 넣어 주세요.');
@@ -3089,7 +3109,7 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
     if (act === 'map-rename') { const w = ssWorld(), p = w?.places.find((x) => x.id === el.dataset.id); if (p && el.value.trim()) { p.name = el.value.trim(); st.mapSel = p.name; saveMeta(); renderModal(); } return; }
     if (act === 'npc-field') { const n = npcByName(st.npcSel); if (n) { const f = el.dataset.f; const v = el.value.trim(); if (f === 'name' && v && v !== n.name) { const mk = npcMarker(n.name); if (mk) mk.name = v; st.npcSel = v; } if (f === 'name' ? v : true) n[f] = f === 'name' ? v : el.value; saveMeta(); if (f === 'name') renderModal(); if (f === 'faces') ui.refreshNpcFlip(); if (f === 'look') { n.lookSrc = String(n.look || '').trim() ? 'manual' : ''; saveMeta(); } } return; }
     if (act === 'dos-up') { if (el.files?.[0] && cd) { ui.status('이미지를 올리는 중…'); try { cd.profile = await uploadImage(el.files[0]); saveSettings(); } catch (e) { toastr.error('업로드 실패: ' + (e.message || e)); } ui.status(''); el.value = ''; renderModal(); } return; }
-    if (act === 'npc-up') { const n = npcByName(st.npcSel); if (n && el.files?.[0]) { ui.status('이미지를 올리는 중…'); try { const u = await uploadImage(el.files[0]); n.img = n.base = u; n.imgAi = false; delete n.lookPhoto; saveMeta(); } catch (e) { toastr.error('업로드 실패: ' + (e.message || e)); } ui.status(''); el.value = ''; renderModal(); } return; }
+    if (act === 'npc-up') { const n = npcByName(st.npcSel); if (n && el.files?.[0]) { ui.status('이미지를 올리는 중…'); try { const o1 = n.img, o2 = n.base, u = await uploadImage(el.files[0]); n.img = n.base = u; n.imgAi = false; delete n.lookPhoto; if (n.lookSrc === 'photo') { n.look = ''; delete n.lookSrc; } saveMeta(); dropImage(o1); if (o2 !== o1) dropImage(o2); } catch (e) { toastr.error('업로드 실패: ' + (e.message || e)); } ui.status(''); el.value = ''; renderModal(); } return; }
     if (act === 'of-desc') { const n = el.closest('[data-of]').dataset.of; cd.outfits[n].desc = el.value; saveSettings(); return; }
     if (el.id === 'vn-look') { cd.look = el.value; saveSettings(); return; }
     if (act === 'pl-desc') { const sec = el.closest('[data-k]'); plEnsure(sec.dataset.k, sec.dataset.n).desc = el.value; saveSettings(); return; }

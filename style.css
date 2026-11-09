@@ -476,3 +476,16 @@ body.vn-open #vn-fab { display: none !important; }
 
 /* ===== 1.9.3: 동물 NPC는 작게 ===== */
 #vn-root .vn-sp.vn-sp-npc.animal { height: calc(40% * var(--npc-s, 1)); }
+
+/* ===== 1.9.4: 이미지 선택/보관함 타일 · 되돌리기 버튼 ===== */
+.vn-pickgrid .vn-pickitem { position: relative; width: 100px; }
+.vn-pickgrid .vn-pickitem img { height: 96px; object-fit: contain; cursor: zoom-in; background-image: linear-gradient(45deg, #444 25%, transparent 25%, transparent 75%, #444 75%), linear-gradient(45deg, #444 25%, transparent 25%, transparent 75%, #444 75%); background-size: 12px 12px; background-position: 0 0, 6px 6px; background-color: #666; }
+div.vn-pickitem { cursor: default; }
+.vn-pickbtns { display: flex; gap: 4px; width: 100%; margin-top: 4px; }
+.vn-pickbtns .vn-btn { flex: 1; min-width: 0; padding: 2px 4px; font-size: .72rem; }
+.vn-pk-bad { display: none; width: 100%; height: 96px; line-height: 96px; text-align: center; color: #ff9a9a; }
+.vn-pickitem.broken img { display: none; } .vn-pickitem.broken .vn-pk-bad { display: block; }
+.vn-pk-badge { position: absolute; top: 6px; left: 6px; padding: 0 5px; font-size: .62rem; color: #fff; background: rgba(60,140,90,.85); border-radius: 5px; }
+.vn-pk-badge.unused { background: rgba(170,100,40,.9); }
+.vn-pickgrid.big { max-height: 62vh; }
+.vn-uncutb { position: absolute; bottom: 20px; right: 28px; width: 22px; height: 22px; font-size: .8rem; line-height: 1; color: #fff; background: rgba(0,0,0,.7); border: 0; border-radius: 50%; }
