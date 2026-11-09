@@ -69,7 +69,7 @@
     choiceCount: 4, choiceLen: 70, choiceP1: '', choiceP2: '', choiceP3: '', choiceP4: '', choiceExtra: '',
     useSSLook: true, lookModel: 'gemini-3.1-flash', lookVision: false, stylePreset: 'ss', stylePresets: [], negative: '',
     analyzePlaces: false, bgBlank: false, bgBlankColor: '#ffffff', bgBlankAuto: true, textH: 0, lpWidth: 0, fabPos: null, htmlPos: null, fabShow: true, theme: 'sakura', spriteScale: 100, spriteY: 0, evText: true, followCount: 3, llmTimeout: 150, deleteFiles: true, hideInChat: false, htmlAuto: false, lang: 'ko', devMode: false, hideBlocks: true, hideYaml: true, hideRegex: '', cutout: true, cutTol: 34, emosDefault: ['neutral', 'joy', 'sadness', 'anger', 'surprise', 'embarrassment'], enabled: true, fab: true, autoOpen: false, inject: true, choicesMode: 'both', eventEvery: 4,
-    useST: true, classify: true, useAvatars: true, autoSprite: true, npcAutoImg: false, spriteCap: 6, useSS: true, autoAnalyze: true, hideTags: '',
+    useST: true, classify: true, useAvatars: true, autoSprite: true, npcAutoImg: false, choiceFs: 90, choiceFsMin: 78, minTextH: 150, npcGap: 26, npcScale: 100, npcY: 0, npcFirst: 'R', npcFace: true, spriteCap: 6, useSS: true, autoAnalyze: true, hideTags: '',
     autoBg: true, autoEventImg: true, autoEventVid: false, videoConfirm: true,
     style: 'visual novel background art, soft anime painterly style, clean lines, rich atmosphere, high detail',
     cgStyle: 'visual novel event CG, anime illustration, cinematic composition, emotional lighting, high detail',
@@ -1036,7 +1036,7 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
       <div class="vn-input" id="vn-input"><input type="text" id="vn-in" autocomplete="off" placeholder="직접 말을 건네 보세요"><button data-act="send">보내기</button></div>
     </div>
   </div>
-  <div class="vn-sprpop vn-off" id="vn-sprpop"><label><span>크기</span><input type="range" min="40" max="170" data-vk="spriteScale"><output></output></label><label><span>위치</span><input type="range" min="-30" max="30" data-vk="spriteY"><output></output></label><div class="vn-prow"><button data-act="spr-reset">초기화</button><button data-act="spr-close">닫기</button></div></div>
+  <div class="vn-sprpop vn-off" id="vn-sprpop"><label><span>캐릭터 크기</span><input type="range" min="40" max="170" data-vk="spriteScale"><output></output></label><label><span>캐릭터 위치</span><input type="range" min="-30" max="30" data-vk="spriteY"><output></output></label><label><span>NPC 간격</span><input type="range" min="8" max="46" data-vk="npcGap"><output></output></label><label><span>NPC 크기</span><input type="range" min="50" max="150" step="5" data-vk="npcScale"><output></output></label><label><span>NPC 높이</span><input type="range" min="-30" max="30" data-vk="npcY"><output></output></label><label><span>글상자 높이</span><input type="range" min="0" max="700" step="10" data-vk="textH"><output></output></label><label><span>접힘 높이</span><input type="range" min="70" max="500" step="10" data-vk="minTextH"><output></output></label><label><span>선택지 글씨</span><input type="range" min="50" max="130" step="5" data-vk="choiceFs"><output></output></label><label><span>접힘 글씨</span><input type="range" min="50" max="120" step="5" data-vk="choiceFsMin"><output></output></label><div class="vn-prow"><button data-act="spr-reset">초기화</button><button data-act="spr-close">닫기</button></div></div>
   <div class="vn-event vn-off" id="vn-event"></div>
   <div class="vn-fade" id="vn-fade"><span></span></div>
   <div class="vn-htmlpanel vn-off" id="vn-htmlpanel" role="dialog" aria-label="HTML/CSS 효과">
@@ -1082,6 +1082,13 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
       this.root.dataset.theme = s.theme || 'sakura'; document.getElementById('vn-fab')?.setAttribute('data-theme', s.theme || 'sakura');
       this.root.style.setProperty('--spr-s', ((+s.spriteScale || 100) / 100).toFixed(2)); this.root.style.setProperty('--spr-y', String(+s.spriteY || 0));
       this.root.classList.toggle('bg-blank', !!s.bgBlank); this.root.style.setProperty('--vn-blank', s.bgBlankColor || '#ffffff');
+      const pf = (v, d) => (v !== '' && v != null && Number.isFinite(+v) ? +v : d);
+      this.root.style.setProperty('--vn-cfs', (pf(s.choiceFs, 90) / 100).toFixed(2));
+      this.root.style.setProperty('--vn-cfs-min', (pf(s.choiceFsMin, 78) / 100).toFixed(2));
+      this.root.style.setProperty('--vn-mh', Math.round(pf(s.minTextH, 150)) + 'px');
+      this.root.style.setProperty('--npc-gap', String(pf(s.npcGap, 26)));
+      this.root.style.setProperty('--npc-s', (pf(s.npcScale, 100) / 100).toFixed(2));
+      this.root.style.setProperty('--npc-y', String(pf(s.npcY, 0)));
     },
     q: (sel) => $q(sel, ui.root),
     status(msg, cancel = false) {
@@ -1103,17 +1110,21 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
     },
     npcSide: { R: null, L: null },
     /* 마주친 NPC를 주인공 옆(오른쪽 → 왼쪽 순서)에 추가로 띄운다. 주인공 이미지는 그대로 둔다 */
+    /* 이미지가 보는 방향(faces)이 주인공 쪽이 아니면 좌우 반전: 오른쪽 NPC는 왼쪽(주인공)을, 왼쪽 NPC는 오른쪽을 보게 한다 */
+    npcFlip(npc, k) { const f = npc?.faces; if (S().npcFace === false || (f !== 'left' && f !== 'right')) return false; return f !== (k === 'R' ? 'left' : 'right'); },
     showNpcSide(npc) {
       if (!npc?.img || !ui.root) return;
       const wrap = ui.q('.vn-sprites'), side = ui.npcSide, fade = (S().fadeMs || 700) + 120;
       let k = ['R', 'L'].find((x) => side[x] && side[x].name === npc.name);
-      if (k && side[k].url === npc.img) return;
-      if (!k) k = !side.R ? 'R' : (!side.L ? 'L' : 'L');
+      if (k && side[k].url === npc.img) { side[k].el.style.setProperty('--flip', ui.npcFlip(npc, k) ? -1 : 1); return; }
+      if (!k) { const first = S().npcFirst === 'L' ? 'L' : 'R', second = first === 'R' ? 'L' : 'R'; k = !side[first] ? first : second; }
       if (side[k]) { const o = side[k].el; o.classList.remove('on'); setTimeout(() => o.remove(), fade); }
       const img = document.createElement('img'); img.alt = ''; img.className = 'vn-sp vn-sp-npc' + (k === 'L' ? ' left' : ''); img.src = npc.img;
+      img.style.setProperty('--flip', ui.npcFlip(npc, k) ? -1 : 1);
       wrap.appendChild(img); void img.offsetWidth; img.classList.add('on');
       side[k] = { name: npc.name, url: npc.img, el: img };
     },
+    refreshNpcFlip() { for (const k of ['R', 'L']) { const s = ui.npcSide[k]; if (s) s.el.style.setProperty('--flip', ui.npcFlip(npcByName(s.name), k) ? -1 : 1); } },
     npcTalk(name) { for (const k of ['R', 'L']) ui.npcSide[k]?.el.classList.toggle('talk', !!name && ui.npcSide[k].name === name); },
     hideNpcSide() {
       const fade = (S().fadeMs || 700) + 120;
@@ -1372,7 +1383,7 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
     } else ch.classList.remove('on');
     if (meta.mode === 'daily' && !list.length) eb.insertAdjacentHTML('beforeend', '<button class="vn-pill" data-act="next-slot">다음 시간대로 ▶</button>');
     ui.q('.vn-evmini-wrap')?.remove();
-    if (turn.lines?.length && eventPossible() && !turn.solo) ui.q('#vn-text').insertAdjacentHTML('beforeend', `<div class="vn-evmini-wrap"><button class="vn-evmini" data-act="make-evt" title="장면 생성기의 새 장면이나 새 CG로 이 순간을 이벤트 씬으로 띄워요">🎬 이벤트 씬${st.pendingEvt ? ' ●' : ''}</button></div>`);
+    if (turn.lines?.length && eventPossible() && !turn.solo) { const lastP = [...ui.q('#vn-text').querySelectorAll('p')].filter((x) => !x.classList.contains('vn-wait')).pop(); (lastP || ui.q('#vn-text')).insertAdjacentHTML('beforeend', `<span class="vn-evmini-wrap vn-ev-inline"><button class="vn-evmini" data-act="make-evt" title="장면 생성기의 새 장면이나 새 CG로 이 순간을 이벤트 씬으로 띄워요">🎬 이벤트 씬${st.pendingEvt ? ' ●' : ''}</button></span>`); }
     ui.q('#vn-input').style.display = s.choicesMode === 'choice' && list.length ? 'none' : '';
     ui.q('#vn-in').value = ''; scrollText(true); nudgeLayout(); requestAnimationFrame(() => { nudgeLayout(); scrollText(true); }); setTimeout(() => { nudgeLayout(); scrollText(true); }, 120);
   }
@@ -1551,10 +1562,12 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
       <p class="vn-hint">NPC는 ${esc(cast.map((c) => c.name).join(', ') || '주인공')} 외에 이야기에 나오는 이름 있는 인물이에요. "카드·로어북으로 NPC 찾기"는 아직 만나지 않은 인물까지 카드와 로어북에서 한 번에 모아요. "채팅 기록으로 분석"은 대화에 나온 인물을 찾고 관계 요약과 정보를 갱신해요. NPC에 이미지를 넣어 두면 이야기에 나올 때 주인공 옆에 같이 나타나요.</p>
       ${npcs.length ? `<div class="vn-npcs">${npcs.map((n) => `<button class="vn-npc ${n.name === st.npcSel ? 'sel' : ''}" data-act="npc-open" data-name="${esc(n.name)}"><span class="vn-npc-img">${n.img ? `<img src="${esc(n.img)}" alt="">` : '👤'}</span><b>${esc(n.name)}</b><small>${esc(n.role || 'NPC')}</small></button>`).join('')}</div>` : '<p class="vn-hint">아직 등장인물이 없어요. 위에서 직접 추가하거나 "채팅 기록으로 분석"을 눌러 주세요. 일상 모드에서 새 인물이 나오면 자동으로 모여요.</p>'}
       ${sel ? `<div class="vn-npced"><div><div class="vn-npced-pic">${sel.img ? `<img src="${esc(sel.img)}" alt="${esc(sel.name)}" title="클릭하면 크게 보기">` : '<span>이미지 없음</span>'}</div>
-        <div class="vn-dos-picbtns">${fileInput('npc-up', '', false, '이미지 올리기')}<button class="vn-btn" data-act="npc-gen">AI로 만들기</button>${sel.img ? '<button class="vn-btn" data-act="npc-cut">✂ 배경 제거</button><button class="vn-btn" data-act="npc-imgdel">이미지 삭제</button>' : ''}</div></div>
+        <div class="vn-dos-picbtns">${fileInput('npc-up', '', false, '이미지 올리기')}${fileInput('npc-photo', '', false, sel.photo ? '참고 사진 바꾸기' : '참고 사진 올리기')}<button class="vn-btn" data-act="npc-gen">AI로 만들기</button>${sel.photo ? '<button class="vn-btn" data-act="npc-photodel">참고 사진 삭제</button>' : ''}${sel.img ? '<button class="vn-btn" data-act="npc-cut">✂ 배경 제거</button><button class="vn-btn" data-act="npc-imgdel">이미지 삭제</button>' : ''}</div></div>
         <div class="vn-npced-f">
           <div class="vn-row tight"><input type="text" data-act="npc-field" data-f="name" value="${esc(sel.name)}" placeholder="이름" style="flex:1 1 110px"><input type="text" data-act="npc-field" data-f="role" value="${esc(sel.role || '')}" placeholder="역할 / 관계" style="flex:1 1 90px"></div>
           ${S().useSS && ssWorld()?.places?.length ? `<div class="vn-row tight"><label>지도 위치</label><select data-act="npc-place" data-name="${esc(sel.name)}" style="flex:1 1 140px">${placeOptions(npcMarker(sel.name)?.place, '위치 모름')}</select></div>` : ''}
+          <div class="vn-row tight"><label>이미지가 보는 방향</label><select data-act="npc-field" data-f="faces" style="flex:1 1 140px">${[['', '모름 (반전 안 함)'], ['left', '왼쪽을 봐요'], ['right', '오른쪽을 봐요']].map(([v, l]) => `<option value="${v}" ${(sel.faces || '') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+          <p class="vn-hint">참고 사진: ${sel.photo ? '올려 둔 사진의 얼굴·머리·옷을 AI 생성에서 최우선으로 따르고, 외형 태그는 그다음에 보태요.' : (npcPhotoUrl(sel) ? '같은 이름의 SillyTavern 캐릭터 카드 이미지를 참고 사진으로 쓰고 있어요.' : '없어요. 사진(PNG 등)을 올리면 캐릭터처럼 사진을 먼저, 외형 태그를 그다음에 반영해요.')}</p>
           <textarea rows="2" data-act="npc-field" data-f="desc" placeholder="설명 (외형·성격, AI 이미지 생성에도 쓰여요)">${esc(sel.desc || '')}</textarea>
           <textarea rows="2" data-act="npc-field" data-f="look" placeholder="외형 태그 (영어). 비워 두면 AI 이미지를 만들 때 설명 → 카드·로어북 → 채팅 기록 순으로 근거를 찾아 자동으로 만들어요">${esc(sel.look || '')}</textarea>
           <div class="vn-row tight"><button class="vn-btn sm" data-act="npc-look">자료에서 외형 태그 뽑기 (모델 1회)</button></div>
@@ -2083,7 +2096,10 @@ IMPORTANT: absolutely no text, letters, numbers, labels, signs with writing, leg
       ${sec('선택지 (CYOA)', `${numRow('choiceCount', '선택지 개수', 2, 4)}${numRow('followCount', '일상 모드: 선택 후 이어지는 선택지 개수', 2, 4, 1, '처음 선택지(3~4개)를 고르면 이어지는 후속 선택지가 이 개수만큼 나와요. 모델이 적게 줄 수 있어 개수를 지정해 요청해요.')}${numRow('choiceLen', '선택지 길이 (글자 수 안팎)', 20, 200, 5, '짧고 단조로운 선택지를 줄이려면 늘려 보세요. 행동과 대사를 함께 써요.')}${[1, 2, 3, 4].map((i) => `<div class="vn-opt"><label class="vn-lbl">${i}번 선택지 프롬프트</label><textarea rows="3" data-vk="choiceP${i}" placeholder="${esc(CHOICE_DEF[langKey()][i - 1])}"></textarea></div>`).join('')}<p class="vn-opt-h" style="margin-left:0">비워 두면 위 기본 문장(placeholder)을 써요. {{user}}와 {{char}}를 쓸 수 있어요. 채팅 모드와 일상 모드 모두에 적용돼요.</p><div class="vn-opt"><label class="vn-lbl">선택지 공통 추가 지시</label><textarea rows="2" data-vk="choiceExtra" placeholder="예: 매번 서로 다른 장소/소품을 활용할 것"></textarea></div>`)}
       ${sec('응답 품질 · 언어', `${chk('keepLen', '내 입력이 짧아도 답변 길이·품질 유지', '모델에게 "이전 답변만큼 길고 풍부하게, 짧은 입력을 따라 줄어들지 말 것"을 항상 전달해요.')}<div class="vn-opt"><label class="vn-lbl">추가 품질 지시 (선택)</label><textarea rows="2" data-vk="keepLenText" placeholder="예: 최소 4문단, 감각 묘사와 인물의 속마음을 포함"></textarea></div>${selRow('outLang', '이야기 출력 언어', [['ui', '화면 언어와 같게'], ['ko', '한국어'], ['en', 'English'], ['chat', '채팅 기록을 따라감']], '기존 채팅이 영어여도 한국어를 고르면 모델이 한국어로 쓰도록 강하게 지시해요. 선택지와 상태 정보도 같은 언어예요.')}${chk('translateInput', '내가 다른 언어로 입력하면 출력 언어로 번역해서 전송 (모델 1회)', '예: 한국어로 입력했는데 출력 언어가 English이면 영어로 번역한 문장이 SillyTavern에 기록돼요.')}`)}
       ${sec('일상 모드', `<div class="vn-opt"><label class="vn-lbl">이벤트 씨앗 (한 줄에 하나)</label><textarea rows="5" data-vk="dailySeeds"></textarea></div><div class="vn-opt"><label class="vn-lbl">인카운터 씨앗 (한 줄에 하나)</label><textarea rows="5" data-vk="encSeeds"></textarea><p class="vn-opt-h">하루 계획을 만들 때 이 중 일부가 무작위로 들어가 혼자 있는 시간·NPC·우연한 만남을 풍성하게 해요.</p></div>${numRow('encCount', '하루에 넣을 인카운터 수', 0, 4)}`)}
-      ${sec('화면', `${selRow('theme', '테마', [['sakura', '벚꽃 (기본)'], ['midnight', '한밤 (남색)'], ['forest', '숲 (초록)'], ['ember', '노을 (주황)'], ['lavender', '라벤더 (보라)'], ['mono', '흑백']], '화면 색 분위기가 바뀌어요.')}<div class="vn-opt"><div class="vn-orow"><label>캐릭터 이미지 크기 %</label><input type="range" min="40" max="170" data-vk="spriteScale"></div><p class="vn-opt-h" style="margin-left:0">화면 위의 ⤢ 버튼이나 Ctrl+마우스 휠로도 조절해요.</p></div><div class="vn-opt"><div class="vn-orow"><label>캐릭터 이미지 위치 (위·아래)</label><input type="range" min="-30" max="30" data-vk="spriteY"></div></div>${chk('bgBlank', '배경 이미지 없이 단색으로 두기', '캐릭터 이미지에서 투명하게 안 지워진 부분(팔 사이 등)이 배경과 같은 색이라 투명처럼 보여요. 배경 생성과 장소 이미지는 그대로 두고 화면에서만 가려요.')}<div class="vn-opt"><div class="vn-orow"><label>단색 배경 색</label><input type="color" data-vk="bgBlankColor" style="flex:0 0 60px;height:30px;padding:0"></div></div>${chk('bgBlankAuto', '캐릭터 이미지의 배경색을 자동으로 맞추기', '생성한 원본 이미지(배경을 지우지 않은 것)의 모서리 색을 읽어 그 색으로 채워요.')}${numRow('typeSpeed', '글자 속도 (ms, 0=즉시)', 0, 100)}${numRow('fadeMs', '표정·배경 디졸브 (ms)', 0, 3000, 100)}<div class="vn-opt"><div class="vn-orow"><label>글자 크기 %</label><input type="range" min="80" max="150" data-vk="textSize"></div></div><div class="vn-opt"><div class="vn-orow"><label>대화창 불투명도 %</label><input type="range" min="40" max="100" data-vk="boxOpacity"></div></div>${selRow('logSide', '기록 패널 위치', [['right', '오른쪽'], ['left', '왼쪽']])}`)}
+      ${sec('화면', `${selRow('theme', '테마', [['sakura', '벚꽃 (기본)'], ['midnight', '한밤 (남색)'], ['forest', '숲 (초록)'], ['ember', '노을 (주황)'], ['lavender', '라벤더 (보라)'], ['mono', '흑백']], '화면 색 분위기가 바뀌어요.')}<div class="vn-opt"><div class="vn-orow"><label>캐릭터 이미지 크기 %</label><input type="range" min="40" max="170" data-vk="spriteScale"></div><p class="vn-opt-h" style="margin-left:0">화면 위의 ⤢ 버튼이나 Ctrl+마우스 휠로도 조절해요.</p></div><div class="vn-opt"><div class="vn-orow"><label>캐릭터 이미지 위치 (위·아래)</label><input type="range" min="-30" max="30" data-vk="spriteY"></div></div>
+        ${[['choiceFs', '선택지 글씨 크기 (%)', 50, 130, 5], ['choiceFsMin', '글상자를 접었을 때 선택지 글씨 크기 (%)', 50, 120, 5], ['textH', '글상자 높이 (px, 0 = 자동)', 0, 700, 10], ['minTextH', '글상자를 접었을 때 높이 (px)', 70, 500, 10], ['npcGap', 'NPC 이미지 간격 (주인공에서 좌우로, %)', 8, 46, 1], ['npcScale', 'NPC 이미지 크기 (%)', 50, 150, 5], ['npcY', 'NPC 이미지 위치 (위·아래)', -30, 30, 1]].map(([k, l, a, b, st2]) => `<div class="vn-opt"><div class="vn-orow"><label>${l}</label><input type="range" min="${a}" max="${b}" step="${st2}" data-vk="${k}"></div></div>`).join('')}
+        <p class="vn-opt-h" style="margin-left:0">⤢ 버튼의 팝업에서도 같은 값을 조절해요. 글상자를 접으면 위쪽 대화가 더 보이도록 선택지 글씨를 따로 줄일 수 있어요.</p>
+        ${selRow('npcFirst', '첫 번째 NPC가 서는 쪽', [['R', '주인공 오른쪽'], ['L', '주인공 왼쪽']], '두 번째 NPC는 반대쪽에 서요.')}${chk('npcFace', 'NPC가 주인공 쪽을 바라보게 좌우 반전', 'NPC 탭에서 그 인물의 이미지가 원래 어느 쪽을 보는지 정해 두면 적용돼요. AI로 만든 이미지는 왼쪽을 보는 것으로 자동 기록돼요.')}${chk('bgBlank', '배경 이미지 없이 단색으로 두기', '캐릭터 이미지에서 투명하게 안 지워진 부분(팔 사이 등)이 배경과 같은 색이라 투명처럼 보여요. 배경 생성과 장소 이미지는 그대로 두고 화면에서만 가려요.')}<div class="vn-opt"><div class="vn-orow"><label>단색 배경 색</label><input type="color" data-vk="bgBlankColor" style="flex:0 0 60px;height:30px;padding:0"></div></div>${chk('bgBlankAuto', '캐릭터 이미지의 배경색을 자동으로 맞추기', '생성한 원본 이미지(배경을 지우지 않은 것)의 모서리 색을 읽어 그 색으로 채워요.')}${numRow('typeSpeed', '글자 속도 (ms, 0=즉시)', 0, 100)}${numRow('fadeMs', '표정·배경 디졸브 (ms)', 0, 3000, 100)}<div class="vn-opt"><div class="vn-orow"><label>글자 크기 %</label><input type="range" min="80" max="150" data-vk="textSize"></div></div><div class="vn-opt"><div class="vn-orow"><label>대화창 불투명도 %</label><input type="range" min="40" max="100" data-vk="boxOpacity"></div></div>${selRow('logSide', '기록 패널 위치', [['right', '오른쪽'], ['left', '왼쪽']])}`)}
       ${sec('화풍 (장면 생성기와 같은 방식)', `<div class="vn-opt"><div class="vn-orow"><label>프리셋</label><select id="vn-style-sel" data-act="style-sel"><option value="ss">장면 생성기와 동일 (연동)</option><option value="custom">직접 입력</option>${S().stylePresets.map((p) => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}</select></div><p class="vn-opt-h">${S().stylePreset === 'ss' ? (ssStyleText() ? `장면 생성기 화풍을 쓰는 중: ${esc(ssStyleText().slice(0, 140))}` : '장면 생성기에 저장된 화풍이 없어서 아래 직접 입력 값을 써요.') : '직접 입력 / 저장한 프리셋을 쓰는 중이에요.'}</p></div>
         <div class="vn-opt"><label class="vn-lbl">화풍 프롬프트 (CG·표정·인물)</label><textarea rows="4" data-vk="cgStyle"></textarea><div class="vn-orow" style="margin-top:6px"><input type="text" id="vn-style-name" placeholder="프리셋 이름" style="flex:1 1 140px"><button class="vn-btn sm" data-act="style-save">프리셋 저장</button><button class="vn-btn sm danger" data-act="style-del">프리셋 삭제</button></div></div>
         <div class="vn-opt"><label class="vn-lbl">제외 요소 (이런 건 그리지 않기)</label><input type="text" data-vk="negative" placeholder="예: text, watermark, extra fingers"></div>
@@ -2326,7 +2342,6 @@ ${log}`;
       if (it.summary) n.summary = String(it.summary).slice(0, 300);
       n.facts ||= {}; for (const [k, v] of Object.entries(it.facts || {})) if (k && v) n.facts[String(k).slice(0, 14)] = String(v).slice(0, 90);
     }
-    if (meta.npcs.length > 40) meta.npcs.splice(0, meta.npcs.length - 40);
     saveMeta(); return { added, updated };
   }
   /* 카드·로어북 읽기: 파란 점(항상 켜짐, constant) 항목을 먼저, 그 다음 키워드 항목 */
@@ -2353,24 +2368,24 @@ ${log}`;
     const entries = await loreEntriesAll(ch);
     const cardText = castList().map((x) => `[Card: ${x.name}]\n${String(x.description || '').slice(0, 2500)}\n${String(x.personality || '').slice(0, 600)}\n${String(x.scenario || '').slice(0, 1200)}`).join('\n\n') || String(ch?.description || '').slice(0, 2500);
     let lore = '', used = 0;
-    for (const e of entries) { const line = `- ${e.constant ? '[ALWAYS ON] ' : ''}${e.title || e.keys[0] || '(no title)'}${e.keys.length ? ` (keys: ${e.keys.join(', ')})` : ''}: ${e.text.slice(0, 520)}\n`; if (lore.length + line.length > 16000) break; lore += line; used++; }
+    for (const e of entries) { const line = `- ${e.constant ? '[ALWAYS ON] ' : ''}${e.title || e.keys[0] || '(no title)'}${e.keys.length ? ` (keys: ${e.keys.join(', ')})` : ''}: ${e.text.slice(0, 520)}\n`; if (lore.length + line.length > 28000) break; lore += line; used++; }
     if (!lore && !cardText.trim()) throw new Error('카드 설명도 로어북도 찾지 못했어요. 이 채팅에 로어북이 연결돼 있는지 확인해 주세요.');
     const known = meta.npcs.map((n) => n.name).join(', ') || 'none';
     const prompt = `Do NOT roleplay. Read the character card and the lorebook entries below and extract the NAMED individual people (NPCs) that exist in this story world, other than the main character(s) and the user.
 Entries marked [ALWAYS ON] are always-active lorebook entries and often describe important NPCs, but also use the other entries and the card. Reply with ONLY JSON:
 {"npcs":[{"name":"exact name as written","aliases":["short names or nicknames used in the text"],"role":"short role or relationship","desc":"one short line on appearance and personality","look":"comma-separated English visual tags for appearance and outfit, ONLY if the text states them, otherwise empty string","summary":"1-2 ${DLN()} sentences about this person's relationship to ${c.name1} and ${cast}","facts":{"<short ${DLN()} label such as ${STD_FACTS.join(', ')}>":"<value>"}}]}
-Rules: at most 30 npcs. Only individual people or beings who can talk. Never include places, items, factions, organizations, rules or world settings. Never include ${c.name1} or ${cast}. "facts" only holds things the text states (omit unknown items, values under 60 characters). Keep the exact names of already known NPCs: ${known}. Write texts in ${DLN()}.
+Rules: list every qualifying person (up to 80). Only individual people or beings who can talk. Never include places, items, factions, organizations, rules or world settings. Never include ${c.name1} or ${cast}. "facts" only holds things the text states (omit unknown items, values under 60 characters). Keep the exact names of already known NPCs: ${known}. Write texts in ${DLN()}.
 ${cardText}
 
 [Lorebook]
 ${lore || '(none)'}`;
-    const d = parseJSON(await llm(prompt, 4500, 'NPC 분석 (카드·로어북)'));
+    const d = parseJSON(await llm(prompt, 8000, 'NPC 분석 (카드·로어북)'));
     if (!d || !Array.isArray(d.npcs)) throw new Error('결과를 읽지 못했어요');
     let added = 0, updated = 0;
-    for (const it of d.npcs.slice(0, 30)) {
+    for (const it of d.npcs.slice(0, 80)) {
       const name = String(it?.name || '').trim().slice(0, 24); if (!name || sameName(name, c.name1) || castList().some((x) => sameName(x.name, name))) continue;
       let n = meta.npcs.find((x) => sameName(x.name, name));
-      if (!n) { if (meta.npcs.length >= 40) continue; n = { name, role: '', desc: '' }; meta.npcs.push(n); added++; } else updated++;
+      if (!n) { n = { name, role: '', desc: '' }; meta.npcs.push(n); added++; } else updated++;
       n.role = n.role || String(it.role || '').slice(0, 24); n.desc = n.desc || String(it.desc || '').slice(0, 140);
       if (it.summary && !n.summary) n.summary = String(it.summary).slice(0, 300);
       if (it.look && !n.look) { const lk = cleanLook(String(it.look)); if (lk && lk.length >= 10) n.look = lk.slice(0, 600); }
@@ -2401,7 +2416,7 @@ Rules: "npcs" lists named people (not ${ch.name}, not ${c.name1}) who actually a
     if (d.summary) dos.summary = String(d.summary).slice(0, 300);
     for (const [k, v] of Object.entries(d.facts || {})) if (k && v) addFact(ch.name, String(k).slice(0, 14), String(v).slice(0, 90), false);
     for (const a of d.annivs || []) if (a?.name && /^\d{1,2}-\d{1,2}$/.test(a.md || '') && !meta.annivs.some((x) => x.name === a.name)) meta.annivs.push({ name: String(a.name).slice(0, 30), md: a.md.split('-').map((x) => x.padStart(2, '0')).join('-') });
-    for (const n of Array.isArray(d.npcs) ? d.npcs : []) if (n?.name && n.name !== ch.name && n.name !== c.name1 && !meta.npcs.some((x) => x.name === n.name)) { meta.npcs.push({ name: String(n.name).slice(0, 20), role: String(n.role || '').slice(0, 20), desc: String(n.desc || '').slice(0, 80) }); if (meta.npcs.length > 40) meta.npcs.shift(); }
+    for (const n of Array.isArray(d.npcs) ? d.npcs : []) if (n?.name && n.name !== ch.name && n.name !== c.name1 && !meta.npcs.some((x) => x.name === n.name)) { meta.npcs.push({ name: String(n.name).slice(0, 20), role: String(n.role || '').slice(0, 20), desc: String(n.desc || '').slice(0, 80) }); }
     meta.analyzed[ch.name] = true; saveMeta();
     return true;
   }
@@ -2521,7 +2536,7 @@ Rules for variety and story:
       if (pl.arc) meta.arc = pl.arc;
       const cal = (meta.cal[day] ||= { events: [] }); cal.title = pl.title; cal.weather = pl.weather; cal.sched = [...(meta.sched[day] || [])];   // 계획은 지워져도 캘린더에는 남긴다
       cal.plan = { title: pl.title, weather: pl.weather, slots: pl.slots.map((s) => ({ time: s.time, loc: s.loc, kind: s.kind, npc: s.npc, premise: s.premise, special: s.special })) };
-      for (const n of pl.npcs || []) if (n?.name && !meta.npcs.some((x) => x.name === n.name)) { meta.npcs.push({ name: String(n.name).slice(0, 20), role: String(n.role || '').slice(0, 20), desc: String(n.desc || '').slice(0, 80) }); if (meta.npcs.length > 40) meta.npcs.shift(); }
+      for (const n of pl.npcs || []) if (n?.name && !meta.npcs.some((x) => x.name === n.name)) { meta.npcs.push({ name: String(n.name).slice(0, 20), role: String(n.role || '').slice(0, 20), desc: String(n.desc || '').slice(0, 80) }); }
       for (const k of Object.keys(meta.plans)) if (+k < day - 3) { delete meta.plans[k]; for (const nk of Object.keys(meta.nodes)) if (nk.startsWith(k + ':')) delete meta.nodes[nk]; }
       saveMeta(); return pl;
     }).finally(() => { delete planP[key]; }));
@@ -2687,17 +2702,39 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
     if (one.length >= 15) { n.look = one.slice(0, 600); saveMeta(); return { text: n.look, source }; }
     return { text: '', source };
   }
+  /* NPC 참고 사진: 올려 둔 사진 → 같은 이름의 SillyTavern 캐릭터 카드 이미지. 캐릭터와 똑같이 '사진 먼저, 외형 태그는 그다음' */
+  function npcPhotoUrl(n) {
+    if (n?.photo) return n.photo;
+    const hit = (ctx().characters || []).find((x) => x?.avatar && x.name && sameName(x.name, n?.name));
+    return hit ? '/characters/' + encodeURIComponent(hit.avatar) : '';
+  }
+  async function npcPhotoLook(n, url) {
+    if (n.photoLook && n.photoLookUrl === url) return n.photoLook;
+    if (!S().geminiKey.trim()) return '';
+    const img = await refInline(url, 1024); if (!img) return '';
+    const out = cleanLook(await geminiText(`The attached image is a photo of the person named "${n.name}". Write ONE line of comma-separated English visual tags describing only the physical appearance and outfit (age impression, gender, hair, eyes, skin, build, clothing, accessories). Trust the image. No names, no personality, under 45 words. Output only that line.`, [img], `NPC 사진 외형 (${n.name})`));
+    if (out && out.length >= 15) { n.photoLook = out.slice(0, 600); n.photoLookUrl = url; saveMeta(); return n.photoLook; }
+    return '';
+  }
   async function genNpcImage(n, ch) {
-    const s = S(), refs = [], notes = [];
-    if (ch) { const r = await charRefs(ch, outfitOf(ch), 1); if (r.refs[0]) { refs.push(r.refs[0]); notes.push('Reference image 1 shows the art style and rendering only. The NPC must be a DIFFERENT person.'); } }
+    const s = S(), refs = [], notes = [], photo = npcPhotoUrl(n);
+    if (photo) { const r = await refInline(photo, 1280); if (r) { refs.push(r); notes.push(`Reference image ${refs.length} is the photo of "${n.name}". Keep EXACTLY the same face, hair color and style, eye color, skin tone, age, clothing and accessories.`); } }
+    const hasPhoto = refs.length > 0;
+    if (ch) { const r = await charRefs(ch, outfitOf(ch), 1); if (r.refs[0]) { refs.push(r.refs[0]); notes.push(`Reference image ${refs.length} shows ONLY the art style, rendering, lighting and color grading of this visual novel. The NPC must be a DIFFERENT person than the one in this image.`); } }
+    const bgUrl = bgFor(M().loc || '')?.url;
+    if (bgUrl) { const r = await refInline(bgUrl, 768); if (r) { refs.push(r); notes.push(`Reference image ${refs.length} is the current background: match its color grading and light, but do NOT draw this scene.`); } }
+    let photoLook = '';
+    if (hasPhoto) { try { photoLook = await npcPhotoLook(n, photo); } catch (e) { console.warn('[VN] NPC 사진 외형 추출 실패', e); } }
     let lk = { text: '', source: '' };
     try { lk = await npcLookTags(n, ch); } catch (e) { console.warn('[VN] NPC 외형 추출 실패', e); }
     const worldLook = String(ssWorld()?.look || '').slice(0, 200);
-    const appearance = lk.text ? ` (${lk.text})` : (n.desc ? `. ${n.desc}` : `. No appearance is specified, so invent a distinctive, fitting look for this role${worldLook ? ` in this world: ${worldLook}` : ''}`);
-    st.lastNpcSrc = lk.source || (n.desc ? '설명' : '자료 없음 (AI가 역할에 맞게 설계)');
-    const prompt = `${notes.join(' ')}\nGenerate one image: a visual novel character sprite, waist-up portrait of an NPC named "${n.name}"${n.role ? `, ${n.role}` : ''}${appearance}. Natural expressive pose, slight three-quarter angle. Rendering style: ${styleMain()}. Match the rendering style and level of realism of the reference. Background: plain flat solid pure white, no floor, no shadow, no gradient. Single character, no text, no watermark.`;
+    const tags = hasPhoto ? [photoLook, lk.text ? `(only where the photo says nothing: ${lk.text})` : ''].filter(Boolean).join(' ') : lk.text;
+    const appearance = tags ? ` (${tags})` : (n.desc ? `. ${n.desc}` : `. No appearance is specified, so invent a distinctive, fitting look for this role${worldLook ? ` in this world: ${worldLook}` : ''}`);
+    st.lastNpcSrc = hasPhoto ? `참고 사진${photoLook ? ' + 사진에서 뽑은 태그' : ''}${lk.text ? ' + ' + (lk.source || '외형 태그') : ''}` : (lk.source || (n.desc ? '설명' : '자료 없음 (AI가 역할에 맞게 설계)'));
+    const prompt = `${notes.join(' ')}\nGenerate one image: a visual novel character sprite, waist-up portrait of an NPC named "${n.name}"${n.role ? `, ${n.role}` : ''}${appearance}.${hasPhoto ? ' Follow the photo reference first, then the tags.' : ''} Natural expressive pose, three-quarter view with the body and face turned slightly toward the viewer's LEFT. Rendering style: ${styleMain()}. Match EXACTLY the rendering style, level of realism, lighting and color grading of the style references (if they are photorealistic, make this photorealistic too, NOT anime or illustration). Background: plain flat solid pure white, no floor, no shadow, no gradient. Single character, no text, no watermark.`;
     let url = await geminiGenerate(prompt, refs, '3:4', 'vngen_', `NPC ${n.name}`);
     if (s.cutout) { try { const c = await cutoutImage(url); if (c.url) { const orig = url; url = c.url; dropImage(orig); } } catch { /* 원본 유지 */ } }
+    n.faces = 'left';   // 위 지시대로 왼쪽을 보게 만들었으니 기록해 둔다 (NPC 탭에서 바꿀 수 있어요)
     return url;
   }
 
@@ -2708,7 +2745,7 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
     for (const c of Object.values(s.chars || {})) { add(c.profile); for (const o of Object.values(c.outfits || {})) { add(o.base); Object.values(o.emo || {}).forEach(add); } }
     for (const by of Object.values(s.placesBy || {})) Object.values(by).forEach((p) => add(p.url));
     Object.values(s.places || {}).forEach((p) => add(p.url));
-    const m = ctx().chatMetadata?.[MODULE]; if (m) { (m.gallery || []).forEach((e) => { add(e.url); add(e.video); }); (m.npcs || []).forEach((n) => add(n.img)); (m.mapHist || []).forEach((e) => add(e.url)); }
+    const m = ctx().chatMetadata?.[MODULE]; if (m) { (m.gallery || []).forEach((e) => { add(e.url); add(e.video); }); (m.npcs || []).forEach((n) => { add(n.img); add(n.photo); }); (m.mapHist || []).forEach((e) => add(e.url)); }
     Object.values(ctx().chatMetadata?.minimap?.world?.maps || {}).forEach((mp) => add(mp?.url));   // 지도 이미지
     return set;
   }
@@ -2778,6 +2815,7 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
       case 'npc-analyze': { el.disabled = true; ui.status('NPC를 분석하는 중…'); try { const n = await analyzeNpcs(ch); toastr.success(`NPC ${n.added}명을 추가하고 ${n.updated}명을 갱신했어요`); } catch (e) { toastr.error('분석 실패: ' + (e.message || e)); } ui.status(''); return renderModal(); }
       case 'npcfact-add': { const n = npcByName(st.npcSel); if (!n) return; const l = $q('#vn-nfl', ui.root).value.trim().slice(0, 14), v = $q('#vn-nfv', ui.root).value.trim().slice(0, 90); if (!l || !v) return; (n.facts ||= {})[l] = v; saveMeta(); return renderModal(); }
       case 'npcfact-del': { const n = npcByName(st.npcSel); if (n?.facts) { delete n.facts[el.dataset.l]; saveMeta(); } return renderModal(); }
+      case 'npc-photodel': { const n = npcByName(st.npcSel); if (n) { const old = n.photo; delete n.photo; delete n.photoLook; delete n.photoLookUrl; saveMeta(); dropImage(old); } return renderModal(); }
       case 'npc-open': st.npcSel = el.dataset.name; return renderModal();
       case 'npc-del': { if (!confirm('이 인물을 삭제할까요?')) return; { const gone = meta.npcs.find((n) => n.name === st.npcSel); meta.npcs = meta.npcs.filter((n) => n.name !== st.npcSel); st.npcSel = ''; saveMeta(); dropImage(gone?.img); } return renderModal(); }
       case 'npc-imgdel': { const n = npcByName(st.npcSel); if (n) { const old = n.img; delete n.img; saveMeta(); dropImage(old); } return renderModal(); }
@@ -2996,8 +3034,9 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
       ui.status(''); el.value = ''; return renderModal();
     }
     if (act === 'map-rename') { const w = ssWorld(), p = w?.places.find((x) => x.id === el.dataset.id); if (p && el.value.trim()) { p.name = el.value.trim(); st.mapSel = p.name; saveMeta(); renderModal(); } return; }
-    if (act === 'npc-field') { const n = npcByName(st.npcSel); if (n) { const f = el.dataset.f; const v = el.value.trim(); if (f === 'name' && v && v !== n.name) { const mk = npcMarker(n.name); if (mk) mk.name = v; st.npcSel = v; } if (f === 'name' ? v : true) n[f] = f === 'name' ? v : el.value; saveMeta(); if (f === 'name') renderModal(); } return; }
+    if (act === 'npc-field') { const n = npcByName(st.npcSel); if (n) { const f = el.dataset.f; const v = el.value.trim(); if (f === 'name' && v && v !== n.name) { const mk = npcMarker(n.name); if (mk) mk.name = v; st.npcSel = v; } if (f === 'name' ? v : true) n[f] = f === 'name' ? v : el.value; saveMeta(); if (f === 'name') renderModal(); if (f === 'faces') ui.refreshNpcFlip(); } return; }
     if (act === 'dos-up') { if (el.files?.[0] && cd) { ui.status('이미지를 올리는 중…'); try { cd.profile = await uploadImage(el.files[0]); saveSettings(); } catch (e) { toastr.error('업로드 실패: ' + (e.message || e)); } ui.status(''); el.value = ''; renderModal(); } return; }
+    if (act === 'npc-photo') { const n = npcByName(st.npcSel); if (n && el.files?.[0]) { ui.status('참고 사진을 올리는 중…'); try { const old = n.photo; n.photo = await uploadImage(el.files[0], 1600); delete n.photoLook; delete n.photoLookUrl; saveMeta(); if (old) dropImage(old); toastr.info('참고 사진을 저장했어요. "AI로 만들기"를 누르면 이 사진을 먼저 따라요.'); } catch (e) { toastr.error('업로드 실패: ' + (e.message || e)); } ui.status(''); el.value = ''; renderModal(); } return; }
     if (act === 'npc-up') { const n = npcByName(st.npcSel); if (n && el.files?.[0]) { ui.status('이미지를 올리는 중…'); try { n.img = await uploadImage(el.files[0]); saveMeta(); } catch (e) { toastr.error('업로드 실패: ' + (e.message || e)); } ui.status(''); el.value = ''; renderModal(); } return; }
     if (act === 'of-desc') { const n = el.closest('[data-of]').dataset.of; cd.outfits[n].desc = el.value; saveSettings(); return; }
     if (el.id === 'vn-look') { cd.look = el.value; saveSettings(); return; }
@@ -3039,7 +3078,7 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
       root.dataset.size = (r.height < 520 || r.width < 520) ? 'xs' : (r.height < 700 || r.width < 760) ? 'sm' : 'md'; scrollText(); };
     if (window.ResizeObserver) { new ResizeObserver(fit).observe(ui.q('#vn-stage')); new ResizeObserver(() => { if (st.stick) ui.q('#vn-text').scrollTop = ui.q('#vn-text').scrollHeight; }).observe(ui.q('#vn-box')); }
     window.addEventListener('resize', fit); fit(); ui.fit = fit;
-    const sprOut = () => { const pp = ui.q('#vn-sprpop'); $$('label', pp).forEach((l) => { const i = l.querySelector('input'), o = l.querySelector('output'); if (i && o) o.textContent = i.dataset.vk === 'spriteScale' ? i.value + '%' : i.value; }); };
+    const sprOut = () => { const pp = ui.q('#vn-sprpop'); $$('label', pp).forEach((l) => { const i = l.querySelector('input'), o = l.querySelector('output'); if (i && o) { const k = i.dataset.vk; o.textContent = k === 'textH' && +i.value === 0 ? '자동' : i.value + (['spriteScale', 'choiceFs', 'choiceFsMin', 'npcScale', 'npcGap'].includes(k) ? '%' : (['textH', 'minTextH'].includes(k) ? 'px' : '')); } }); };
     ui.q('#vn-sprpop').addEventListener('input', sprOut);
     ui.q('#vn-stage').addEventListener('wheel', (e) => { if (!e.ctrlKey && !e.altKey) return; e.preventDefault(); const s = S(); s.spriteScale = clamp((+s.spriteScale || 100) + (e.deltaY < 0 ? 5 : -5), 40, 170); saveSettings(); ui.applyLook(); }, { passive: false });   // Ctrl+휠: 캐릭터 크기
     // 효과 패널 끌어서 옮기기 (마우스를 올리면 오른쪽 위에 나타나는 손잡이)
@@ -3090,7 +3129,7 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
         if (act === 'log') return toggleLog();
         if (act === 'spr') { const pp = ui.q('#vn-sprpop'); pp.classList.toggle('vn-off'); if (!pp.classList.contains('vn-off')) { fillInputs(pp); sprOut(); } return; }
         if (act === 'spr-close') return ui.q('#vn-sprpop').classList.add('vn-off');
-        if (act === 'spr-reset') { S().spriteScale = 100; S().spriteY = 0; saveSettings(); ui.applyLook(); fillInputs(ui.q('#vn-sprpop')); sprOut(); return; }
+        if (act === 'spr-reset') { Object.assign(S(), { spriteScale: 100, spriteY: 0, npcGap: 26, npcScale: 100, npcY: 0, textH: 0, minTextH: 150, choiceFs: 90, choiceFsMin: 78 }); saveSettings(); ui.applyLook(); fillInputs(ui.q('#vn-sprpop')); sprOut(); return; }
         if (act === 'html') { if (htmlPanelOpen()) return closeHtmlPanel(); return openHtmlPanel(st.turn); }
         if (act === 'html-close') return closeHtmlPanel();
         if (act === 'collapse') { const b = ui.q('#vn-box'); b.classList.toggle('min'); a.firstElementChild.className = b.classList.contains('min') ? 'fa-solid fa-chevron-up' : 'fa-solid fa-chevron-down'; return; }

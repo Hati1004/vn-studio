@@ -458,3 +458,18 @@ body.vn-open #vn-fab { display: none !important; }
 .vn-sp.vn-sp-npc.talk { filter: brightness(1) saturate(1) drop-shadow(0 6px 18px rgba(0,0,0,.45)); }
 #vn-root[data-size="xs"] .vn-sp.vn-sp-npc { height: 52%; max-width: 38%; }
 #vn-root[data-size="sm"] .vn-sp.vn-sp-npc { height: 60%; }
+
+/* ===== 1.9.2: 선택지 글씨·글상자 높이 조절 · 이벤트 버튼 줄 끝 · NPC 위치/반전 ===== */
+#vn-root .vn-choices { gap: calc(7px * var(--vn-cfs, 1)); margin-bottom: calc(9px * var(--vn-cfs, 1)); }
+#vn-root .vn-choice, #vn-root[data-size] .vn-choice { font-size: calc(1rem * var(--vn-fs, 1) * var(--vn-cfs, 1)); padding: calc(9px * var(--vn-cfs, 1)) calc(14px * var(--vn-cfs, 1)); gap: calc(12px * var(--vn-cfs, 1)); line-height: 1.35; }
+#vn-root .vn-choice b, #vn-root[data-size] .vn-choice b { width: calc(24px * var(--vn-cfs, 1)); height: calc(24px * var(--vn-cfs, 1)); font-size: calc(.8rem * var(--vn-cfs, 1)); }
+#vn-root .vn-box.min { --vn-cfs: var(--vn-cfs-min, .78); }
+#vn-root .vn-box.min .vn-text, #vn-root[data-th] .vn-box.min .vn-text, #vn-root[data-size] .vn-box.min .vn-text, #vn-root[data-th][data-size] .vn-box.min .vn-text { height: var(--vn-mh, 150px) !important; }
+.vn-evmini-wrap.vn-ev-inline { display: inline-block; margin: 0 0 0 .6em; vertical-align: baseline; white-space: nowrap; font-style: normal; }
+.vn-ev-inline .vn-evmini { padding: 0 8px; font-size: .68rem; line-height: 1.5; vertical-align: middle; opacity: .85; }
+.vn-sprpop { width: 300px; max-height: 76dvh; overflow-y: auto; }
+.vn-sprpop label { grid-template-columns: 5.6em 1fr 3.4em; }
+.vn-sp.vn-sp-npc { left: calc(50% + var(--npc-gap, 26) * 1%); height: calc(70% * var(--npc-s, 1)); bottom: calc(var(--npc-y, 0) * 1vh); transform: translateX(-50%) scaleX(var(--flip, 1)); }
+.vn-sp.vn-sp-npc.left { left: calc(50% - var(--npc-gap, 26) * 1%); }
+#vn-root[data-size="xs"] .vn-sp.vn-sp-npc { height: calc(52% * var(--npc-s, 1)); }
+#vn-root[data-size="sm"] .vn-sp.vn-sp-npc { height: calc(60% * var(--npc-s, 1)); }
