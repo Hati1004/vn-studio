@@ -69,7 +69,7 @@
     choiceCount: 4, choiceLen: 70, choiceP1: '', choiceP2: '', choiceP3: '', choiceP4: '', choiceExtra: '',
     useSSLook: true, lookModel: 'gemini-3.1-flash', lookVision: false, stylePreset: 'ss', stylePresets: [], negative: '',
     analyzePlaces: false, bgBlank: false, bgBlankColor: '#ffffff', bgBlankAuto: true, textH: 0, lpWidth: 0, fabPos: null, htmlPos: null, fabShow: true, theme: 'sakura', spriteScale: 100, spriteY: 0, evText: true, followCount: 3, llmTimeout: 150, deleteFiles: true, hideInChat: false, htmlAuto: false, lang: 'ko', devMode: false, hideBlocks: true, hideYaml: true, hideRegex: '', cutout: true, cutTol: 34, emosDefault: ['neutral', 'joy', 'sadness', 'anger', 'surprise', 'embarrassment'], enabled: true, fab: true, autoOpen: false, inject: true, choicesMode: 'both', eventEvery: 4,
-    useST: true, classify: true, useAvatars: true, autoSprite: true, spriteCap: 6, useSS: true, autoAnalyze: true, hideTags: '',
+    useST: true, classify: true, useAvatars: true, autoSprite: true, npcAutoImg: false, spriteCap: 6, useSS: true, autoAnalyze: true, hideTags: '',
     autoBg: true, autoEventImg: true, autoEventVid: false, videoConfirm: true,
     style: 'visual novel background art, soft anime painterly style, clean lines, rich atmosphere, high detail',
     cgStyle: 'visual novel event CG, anime illustration, cinematic composition, emotional lighting, high detail',
@@ -219,7 +219,7 @@
   const CORE_MAP = { admiration: 'joy', amusement: 'joy', approval: 'joy', excitement: 'joy', optimism: 'joy', pride: 'joy', relief: 'joy', gratitude: 'joy', joy: 'joy', caring: 'love', desire: 'love', love: 'love', anger: 'anger', disgust: 'annoyance', annoyance: 'annoyance', disapproval: 'annoyance', disappointment: 'sadness', grief: 'sadness', remorse: 'sadness', sadness: 'sadness', fear: 'nervousness', nervousness: 'nervousness', embarrassment: 'embarrassment', surprise: 'surprise', realization: 'surprise', confusion: 'curiosity', curiosity: 'curiosity', neutral: 'neutral' };
   const coreEmo = (e) => CORE_MAP[e] || 'neutral';
   const EMO_DESC = {
-    neutral: 'relaxed natural standing pose, weight on one leg, one hand lightly holding the bag strap or hem, slight three-quarter body turn, soft calm face',
+    neutral: 'relaxed natural standing pose, weight on one leg, arms relaxed, slight three-quarter body turn, soft calm face',
     joy: 'laughing happily, leaning slightly forward, hands clasped near the chest, bright smile',
     sadness: 'head lowered, hugging their own arm, teary eyes, drooping shoulders',
     anger: 'arms crossed, sharp glare, one foot forward, furrowed brows',
@@ -1101,7 +1101,26 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
       im.onerror = () => { a.classList.remove('on'); b.classList.remove('on'); a.removeAttribute('src'); b.removeAttribute('src'); ph.classList.remove('hide'); };
       im.src = url;
     },
+    npcSide: { R: null, L: null },
+    /* 마주친 NPC를 주인공 옆(오른쪽 → 왼쪽 순서)에 추가로 띄운다. 주인공 이미지는 그대로 둔다 */
+    showNpcSide(npc) {
+      if (!npc?.img || !ui.root) return;
+      const wrap = ui.q('.vn-sprites'), side = ui.npcSide, fade = (S().fadeMs || 700) + 120;
+      let k = ['R', 'L'].find((x) => side[x] && side[x].name === npc.name);
+      if (k && side[k].url === npc.img) return;
+      if (!k) k = !side.R ? 'R' : (!side.L ? 'L' : 'L');
+      if (side[k]) { const o = side[k].el; o.classList.remove('on'); setTimeout(() => o.remove(), fade); }
+      const img = document.createElement('img'); img.alt = ''; img.className = 'vn-sp vn-sp-npc' + (k === 'L' ? ' left' : ''); img.src = npc.img;
+      wrap.appendChild(img); void img.offsetWidth; img.classList.add('on');
+      side[k] = { name: npc.name, url: npc.img, el: img };
+    },
+    npcTalk(name) { for (const k of ['R', 'L']) ui.npcSide[k]?.el.classList.toggle('talk', !!name && ui.npcSide[k].name === name); },
+    hideNpcSide() {
+      const fade = (S().fadeMs || 700) + 120;
+      for (const k of ['R', 'L']) { const s = ui.npcSide[k]; if (s) { s.el.classList.remove('on'); setTimeout(() => s.el.remove(), fade); } ui.npcSide[k] = null; }
+    },
     hideSprites() {
+      ui.hideNpcSide();
       const old = st.curImg; if (old) { old.classList.remove('on'); setTimeout(() => old.remove(), (S().fadeMs || 700) + 100); }
       st.curImg = null; st.curKey = ''; ui.q('.vn-sp-prev')?.classList.remove('on');
     },
@@ -1232,6 +1251,33 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
   }
   const npcByName = (name) => M().npcs.find((n) => n.name === name) || null;
   const isNpcLine = (line, turn) => line.k === 'say' && line.who && line.who !== turn.ch?.name;
+  /* NPC 이름 매칭: 이름 + 별칭 (한글 세 글자 이름은 이름만 부르는 경우도 포함) */
+  const npcKeys = (n) => {
+    const nm = String(n.name || '').trim(), ks = [nm, ...(n.aliases || [])].map((x) => String(x || '').trim()).filter((x) => x.length >= 2);
+    if (/^[가-힣]{3}$/.test(nm)) ks.push(nm.slice(1));
+    return [...new Set(ks)];
+  };
+  const npcFind = (name) => { const k = String(name || '').trim().toLowerCase(); if (!k) return null; return M().npcs.find((n) => npcKeys(n).some((x) => x.toLowerCase() === k)) || null; };
+  const npcsIn = (text) => { const tx = String(text || '').toLowerCase(); return tx ? M().npcs.filter((n) => npcKeys(n).some((x) => tx.includes(x.toLowerCase()))) : []; };
+  const npcGenBusy = new Set();
+  async function lazyNpcImg(n) {
+    const s = S(); if (!s.npcAutoImg || !s.geminiKey.trim() || !n || n.img || n.noAuto || npcGenBusy.has(n.name) || npcGenBusy.size >= 1) return;
+    npcGenBusy.add(n.name);
+    try {
+      n.img = await genNpcImage(n, activeChar()); saveMeta();
+      if (st.open && st.turn?.ch && !st.turn.noChar) ui.showNpcSide(n);
+    } catch (e) { n.noAuto = true; saveMeta(); console.warn('[VN] NPC 이미지 자동 생성 실패', e); }
+    finally { npcGenBusy.delete(n.name); }
+  }
+  /* 한 줄이 나올 때: NPC가 말하거나 서술에 이름이 나오면 그 NPC를 주인공 옆에 띄운다 (이미 떠 있으면 그대로) */
+  function npcCue(line, turn) {
+    if (!turn?.ch || turn.noChar || !line) return null;
+    const speaker = line.k === 'say' && line.who && line.who !== turn.ch.name ? npcFind(line.who) : null;
+    const found = speaker ? [speaker] : (line.k === 'narr' ? npcsIn(line.t) : []);
+    for (const nn of found.slice(0, 2)) { if (nn.img) ui.showNpcSide(nn); else lazyNpcImg(nn); }
+    const talking = speaker?.img ? speaker.name : null;
+    ui.npcTalk(talking); return talking;
+  }
   function lineEmo(turn, i) {
     const avail = turn.ch ? availEmos(turn.ch) : EMOS, l = turn.lines[i];
     if (l?.emo) return normEmo(l.emo, avail) || turn.emo;
@@ -1252,8 +1298,9 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
     const { p, tx, who } = mkPara(line, n.turn);
     ui.q('#vn-text').appendChild(p); scrollText(); logLine(n.turn, n.i, who);
     const nm = ui.q('#vn-name'); nm.textContent = who; nm.style.visibility = who ? 'visible' : 'hidden'; nm.className = 'vn-name' + (line.k === 'user' ? ' is-user' : '');
-    const npc = isNpcLine(line, n.turn), npcData = (npc || (n.turn.noChar && line.k === 'say' && n.turn.npcName)) ? npcByName(line.who || n.turn.npcName) : null;
-    if (npcData?.img) { ui.showSpriteUrl('npc|' + npcData.name, npcData.img, 'sprite'); }
+    const npc = isNpcLine(line, n.turn), npcData = (npc || (n.turn.noChar && line.k === 'say' && n.turn.npcName)) ? npcFind(line.who || n.turn.npcName) : null;
+    npcCue(line, n.turn);   // 마주친 NPC는 주인공 옆에 추가로 띄운다 (주인공 이미지는 그대로)
+    if (npcData?.img && n.turn.noChar) { ui.showSpriteUrl('npc|' + npcData.name, npcData.img, 'sprite'); }   // 주인공 없이 NPC만 나오는 장면은 가운데
     else if (n.turn.ch && !n.turn.noChar) {   // 대사마다 표정이 바뀌면 천천히 디졸브
       const e = npc ? st.curEmo : lineEmo(n.turn, n.i);
       if (!npc && String(st.curKey).startsWith('npc|')) { st.curKey = ''; ui.setSprite(n.turn.ch, e || st.curEmo, outfitOf(n.turn.ch)); }
@@ -1273,7 +1320,7 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
     const n = st.nvl; if (!n) return false;
     clearInterval(n.timer); clearTimeout(n.timer);
     if (n.cur) { n.cur.tx.textContent = n.cur.text; n.cur = null; n.i++; }
-    while (n.i < n.turn.lines.length) { const { p, tx, who } = mkPara(n.turn.lines[n.i], n.turn); tx.textContent = n.turn.lines[n.i].t; ui.q('#vn-text').appendChild(p); logLine(n.turn, n.i, who); n.i++; }
+    while (n.i < n.turn.lines.length) { const { p, tx, who } = mkPara(n.turn.lines[n.i], n.turn); tx.textContent = n.turn.lines[n.i].t; ui.q('#vn-text').appendChild(p); logLine(n.turn, n.i, who); npcCue(n.turn.lines[n.i], n.turn); n.i++; }
     scrollText();
     if (silent) { st.nvl = null; ui.q('#vn-box').classList.remove('typing'); return true; }
     nvlDone(); return true;
@@ -1300,6 +1347,15 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
     if (turn !== st.turn) return;
     showEnd(turn);
   }
+  /* 창을 나갔다 들어오면 선택지가 그려지지 않다가 글상자를 접었다 펴야 보이던 문제:
+     접기→펼치기와 같은 레이아웃 재계산을 직접 한 번 해 준다 (접힘 상태는 그대로 유지) */
+  function nudgeLayout() {
+    const box = ui.q('#vn-box'); if (!box || !st.open || !ui.root || ui.root.classList.contains('vn-off')) return;
+    const was = box.classList.contains('min');
+    box.classList.toggle('min', !was); void box.offsetHeight;
+    box.classList.toggle('min', was); void box.offsetHeight;
+    scrollText();
+  }
   function showEnd(turn) {
     const meta = M(), s = S(), box = ui.q('#vn-box');
     box.classList.add('end');
@@ -1318,7 +1374,7 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
     ui.q('.vn-evmini-wrap')?.remove();
     if (turn.lines?.length && eventPossible() && !turn.solo) ui.q('#vn-text').insertAdjacentHTML('beforeend', `<div class="vn-evmini-wrap"><button class="vn-evmini" data-act="make-evt" title="장면 생성기의 새 장면이나 새 CG로 이 순간을 이벤트 씬으로 띄워요">🎬 이벤트 씬${st.pendingEvt ? ' ●' : ''}</button></div>`);
     ui.q('#vn-input').style.display = s.choicesMode === 'choice' && list.length ? 'none' : '';
-    ui.q('#vn-in').value = ''; scrollText(true); requestAnimationFrame(() => scrollText(true)); setTimeout(() => scrollText(true), 120);
+    ui.q('#vn-in').value = ''; scrollText(true); nudgeLayout(); requestAnimationFrame(() => { nudgeLayout(); scrollText(true); }); setTimeout(() => { nudgeLayout(); scrollText(true); }, 120);
   }
   function showWaiting(on, msg = '…') {
     st.waiting = on; clearInterval(st.waitTimer);
@@ -1491,8 +1547,8 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
     const extra = sel ? Object.keys(sel.facts || {}).filter((k) => !NPC_STD().includes(k)) : [];
     const fact = (k) => sel.facts?.[k] ? `<div class="vn-fact"><span>${esc(k)}</span><b>${esc(sel.facts[k])}</b><button class="vn-x" data-act="npcfact-del" data-l="${esc(k)}" aria-label="삭제">✕</button></div>` : `<div class="vn-fact lock"><span>${esc(k)}</span><b>???</b></div>`;
     return `
-      <div class="vn-row tight"><input type="text" id="vn-npcnew" placeholder="새 인물 이름" style="flex:1 1 140px"><button class="vn-btn sm" data-act="npc-add">인물 추가</button><button class="vn-btn sm primary" data-act="npc-analyze">채팅 기록으로 분석 (모델 1회)</button></div>
-      <p class="vn-hint">NPC는 ${esc(cast.map((c) => c.name).join(', ') || '주인공')} 외에 이야기에 나오는 이름 있는 인물이에요. 분석 버튼 한 번으로 채팅 기록에서 새 인물을 찾고, 이미 있는 인물의 관계 요약과 정보를 갱신해요.</p>
+      <div class="vn-row tight"><input type="text" id="vn-npcnew" placeholder="새 인물 이름" style="flex:1 1 140px"><button class="vn-btn sm" data-act="npc-add">인물 추가</button><button class="vn-btn sm primary" data-act="npc-analyze-src" title="카드 설명과 로어북(파란 점 항목 우선)을 한 번 읽어서 인물을 미리 모아요. 채팅에서 안 마주쳐도 등록돼요.">카드·로어북으로 NPC 찾기 (모델 1회)</button><button class="vn-btn sm" data-act="npc-analyze">채팅 기록으로 분석 (모델 1회)</button></div>
+      <p class="vn-hint">NPC는 ${esc(cast.map((c) => c.name).join(', ') || '주인공')} 외에 이야기에 나오는 이름 있는 인물이에요. "카드·로어북으로 NPC 찾기"는 아직 만나지 않은 인물까지 카드와 로어북에서 한 번에 모아요. "채팅 기록으로 분석"은 대화에 나온 인물을 찾고 관계 요약과 정보를 갱신해요. NPC에 이미지를 넣어 두면 이야기에 나올 때 주인공 옆에 같이 나타나요.</p>
       ${npcs.length ? `<div class="vn-npcs">${npcs.map((n) => `<button class="vn-npc ${n.name === st.npcSel ? 'sel' : ''}" data-act="npc-open" data-name="${esc(n.name)}"><span class="vn-npc-img">${n.img ? `<img src="${esc(n.img)}" alt="">` : '👤'}</span><b>${esc(n.name)}</b><small>${esc(n.role || 'NPC')}</small></button>`).join('')}</div>` : '<p class="vn-hint">아직 등장인물이 없어요. 위에서 직접 추가하거나 "채팅 기록으로 분석"을 눌러 주세요. 일상 모드에서 새 인물이 나오면 자동으로 모여요.</p>'}
       ${sel ? `<div class="vn-npced"><div><div class="vn-npced-pic">${sel.img ? `<img src="${esc(sel.img)}" alt="${esc(sel.name)}" title="클릭하면 크게 보기">` : '<span>이미지 없음</span>'}</div>
         <div class="vn-dos-picbtns">${fileInput('npc-up', '', false, '이미지 올리기')}<button class="vn-btn" data-act="npc-gen">AI로 만들기</button>${sel.img ? '<button class="vn-btn" data-act="npc-cut">✂ 배경 제거</button><button class="vn-btn" data-act="npc-imgdel">이미지 삭제</button>' : ''}</div></div>
@@ -1506,7 +1562,7 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
           <h4>알아낸 정보</h4>
           <div class="vn-facts">${[...NPC_STD(), ...extra].map(fact).join('')}</div>
           <div class="vn-row tight"><input type="text" id="vn-nfl" placeholder="항목" style="flex:1 1 90px"><input type="text" id="vn-nfv" placeholder="내용" style="flex:2 1 140px"><button class="vn-btn sm" data-act="npcfact-add">정보 추가</button><button class="vn-btn sm danger" data-act="npc-del">인물 삭제</button></div>
-          <p class="vn-hint">이미지를 넣으면 이 인물이 말할 때 화면에 나타나요.</p></div></div>` : ''}`;
+          <p class="vn-hint">이미지를 넣으면 이 인물이 이야기에 나올 때 주인공 옆(오른쪽, 두 번째는 왼쪽)에 같이 나타나고, 말할 때 밝아져요.</p></div></div>` : ''}`;
   }
   async function tabDossier() {
     const cast = castAll();
@@ -2023,7 +2079,7 @@ IMPORTANT: absolutely no text, letters, numbers, labels, signs with writing, leg
       ${sec('진행', `${chk('enabled', 'VN Studio 사용')}${chk('autoOpen', '캐릭터가 답하면 팝업 자동으로 열기')}${chk('inject', '모델에게 [VN] 블록 규칙 보내기', '끄면 표정·장소·호감도·선택지가 자동으로 안 나와요.')}${chk('autoAnalyze', '기존 채팅이 있으면 처음 한 번 호감도·관계·정보 분석', '모델을 1회 호출해요. 채팅 내용이 연결된 모델로 전송돼요.')}${selRow('choicesMode', '입력 방식', [['both', '선택지 + 직접 입력 (선택지 아래에 입력칸)'], ['choice', '선택지만'], ['free', '직접 입력만']])}`)}
       ${sec('채팅 모드: 글상자에 안 보이게 숨기기', `${chk('hideInChat', 'SillyTavern 채팅창에서도 숨기기 (아래 태그 이름 + facts/status 등)', '화면에서만 가려요. 저장된 대화와 모델에게 보내는 내용은 그대로예요. 짝이 안 맞는 태그(&lt;small&gt;&lt;facts&gt;&lt;/small&gt;&lt;/facts&gt;)도 처리해요.')}${chk('htmlAuto', 'HTML/CSS 효과가 있는 메시지는 효과 창을 자동으로 열기', '프리셋이 만드는 색·애니메이션·움직이는 이미지 효과만 작은 창에 따로 보여 줘요(생각·본문·상태창 글은 제외). 효과가 있는 메시지일 때만 상단에 &lt;/&gt; 버튼이 나타나고, 창 오른쪽 위에 마우스를 올리면 이동·닫기 버튼이 보여요.')}${chk('hideYaml', 'YAML형 상태창 줄(key: value가 3줄 이상 이어짐) 숨기기', '```로 감싸지 않은 상태창도 가려요. 대사가 "이름: 말" 형식이라 잘못 가려지면 끄세요.')}${chk('hideBlocks', '상태창·코드블록·HTML 블록 통째로 숨기기', '```로 감싼 블록, &lt;div&gt;/&lt;table&gt;/&lt;details&gt; 같은 HTML 블록, [STATUS]…[/STATUS]를 연출에서 빼요.')}<div class="vn-opt"><label class="vn-lbl">숨길 태그 이름 (쉼표로 구분)</label><input type="text" data-vk="hideTags" placeholder="예: mythink, 상태창"><p class="vn-opt-h">think, status, 상태창, details 등 흔한 태그는 이미 자동으로 숨겨요.</p></div><div class="vn-opt"><label class="vn-lbl">숨길 패턴 (정규식, 한 줄에 하나)</label><textarea rows="2" data-vk="hideRegex" placeholder="예: ^\\[.*?\\]$"></textarea></div>`)}
       ${sec('이벤트 씬', `${numRow('eventEvery', '이벤트 최소 간격 (메시지 수)', 2, 60)}${selRow('eventSrc', '장면 이미지', [['ss', '장면 생성기 새 장면 우선, 없으면 새로 생성'], ['gen', '항상 새로 생성'], ['ssonly', '장면 생성기 장면만 (생성 비용 0)']], L2(`발동 조건: ① 모델이 event: 를 낼 때(간격 적용) ② 호감도가 한 번에 ±4 이상 변하거나 하트 단계를 넘을 때 ③ 일상 모드의 하이라이트 장면 ④ 글상자 아래 "🎬 이 장면을 이벤트 씬으로" 버튼. ${M().lastEvent <= -90 ? '아직 이벤트가 한 번도 없었어요.' : `마지막 이벤트 후 ${sinceEvent()}개 메시지가 지났어요.`}`, `Triggers: ① the model emits event: (interval applies) ② closeness changes by ±4 or more at once, or a heart level is passed ③ a daily-mode highlight scene ④ the "🎬 Make this an event scene" button under the text box. ${M().lastEvent <= -90 ? 'No event has happened yet.' : `${sinceEvent()} messages since the last event.`}`))}${chk('autoEventImg', '이벤트 발생 시 CG 자동 준비')}${chk('autoEventVid', '이벤트 CG를 영상으로 자동 변환', '켜면 확인창 없이 요금이 나가요.')}${chk('videoConfirm', '수동 영상 생성 때 요금 확인창 띄우기')}${chk('useAvatars', 'CG 생성 시 캐릭터·페르소나 이미지를 참조로 보내기')}`)}
-      ${sec('연동 · 이미지 생성 (API 요금 발생)', `${chk('useSS', '장면 생성기(Scene Studio) 연동', '장소 목록·지도·이미 만든 장면 이미지·화풍·외형 태그를 가져다 써요.')}${chk('autoBg', '배경이 없는 장소는 한 번만 자동 생성')}${chk('autoSprite', '고른 표정이 없으면 한 장씩 자동 생성')}${numRow('spriteCap', '표정 자동 생성 상한 (접속당)', 0, 60)}${numRow('llmTimeout', '모델 응답 기다리는 최대 시간 (초)', 30, 600, 10, '일상 모드 계획·장면 생성이 이 시간 안에 오지 않으면 이유와 함께 실패로 처리하고 다시 시도할 수 있어요.')}${numRow('imgGapSec', '이미지 요청 간격 (초)', 0, 60, 1, '429(요청 과다)가 뜨면 늘려 보세요. 429가 나면 자동으로 기다렸다가 다시 시도해요.')}${chk('cutout', '생성한 캐릭터 이미지의 배경 자동 제거 (투명 PNG)', '흰 배경으로 만든 뒤 가장자리에서부터 배경색만 지워요. 배경이 균일하지 않으면 원본을 그대로 저장해요.')}${numRow('cutTol', '배경 제거 민감도', 10, 80, 2, '값이 크면 배경을 더 많이 지우지만 인물 가장자리가 깎일 수 있어요.')}${chk('useST', 'SillyTavern 표정 스프라이트 사용')}${chk('classify', '[VN] 블록에 표정이 없으면 분류기로 추정')}`)}
+      ${sec('연동 · 이미지 생성 (API 요금 발생)', `${chk('useSS', '장면 생성기(Scene Studio) 연동', '장소 목록·지도·이미 만든 장면 이미지·화풍·외형 태그를 가져다 써요.')}${chk('autoBg', '배경이 없는 장소는 한 번만 자동 생성')}${chk('autoSprite', '고른 표정이 없으면 한 장씩 자동 생성')}${chk('npcAutoImg', '마주친 NPC에 이미지가 없으면 한 번만 자동 생성', 'NPC가 이야기에 나왔는데 이미지가 없을 때, 이미지 1회 요금으로 한 장 만들어 주인공 옆에 띄워요. 실패하면 그 NPC는 다시 시도하지 않아요. 끄면 NPC 탭에서 직접 올리거나 만든 이미지만 나와요.')}${numRow('spriteCap', '표정 자동 생성 상한 (접속당)', 0, 60)}${numRow('llmTimeout', '모델 응답 기다리는 최대 시간 (초)', 30, 600, 10, '일상 모드 계획·장면 생성이 이 시간 안에 오지 않으면 이유와 함께 실패로 처리하고 다시 시도할 수 있어요.')}${numRow('imgGapSec', '이미지 요청 간격 (초)', 0, 60, 1, '429(요청 과다)가 뜨면 늘려 보세요. 429가 나면 자동으로 기다렸다가 다시 시도해요.')}${chk('cutout', '생성한 캐릭터 이미지의 배경 자동 제거 (투명 PNG)', '흰 배경으로 만든 뒤 가장자리에서부터 배경색만 지워요. 배경이 균일하지 않으면 원본을 그대로 저장해요.')}${numRow('cutTol', '배경 제거 민감도', 10, 80, 2, '값이 크면 배경을 더 많이 지우지만 인물 가장자리가 깎일 수 있어요.')}${chk('useST', 'SillyTavern 표정 스프라이트 사용')}${chk('classify', '[VN] 블록에 표정이 없으면 분류기로 추정')}`)}
       ${sec('선택지 (CYOA)', `${numRow('choiceCount', '선택지 개수', 2, 4)}${numRow('followCount', '일상 모드: 선택 후 이어지는 선택지 개수', 2, 4, 1, '처음 선택지(3~4개)를 고르면 이어지는 후속 선택지가 이 개수만큼 나와요. 모델이 적게 줄 수 있어 개수를 지정해 요청해요.')}${numRow('choiceLen', '선택지 길이 (글자 수 안팎)', 20, 200, 5, '짧고 단조로운 선택지를 줄이려면 늘려 보세요. 행동과 대사를 함께 써요.')}${[1, 2, 3, 4].map((i) => `<div class="vn-opt"><label class="vn-lbl">${i}번 선택지 프롬프트</label><textarea rows="3" data-vk="choiceP${i}" placeholder="${esc(CHOICE_DEF[langKey()][i - 1])}"></textarea></div>`).join('')}<p class="vn-opt-h" style="margin-left:0">비워 두면 위 기본 문장(placeholder)을 써요. {{user}}와 {{char}}를 쓸 수 있어요. 채팅 모드와 일상 모드 모두에 적용돼요.</p><div class="vn-opt"><label class="vn-lbl">선택지 공통 추가 지시</label><textarea rows="2" data-vk="choiceExtra" placeholder="예: 매번 서로 다른 장소/소품을 활용할 것"></textarea></div>`)}
       ${sec('응답 품질 · 언어', `${chk('keepLen', '내 입력이 짧아도 답변 길이·품질 유지', '모델에게 "이전 답변만큼 길고 풍부하게, 짧은 입력을 따라 줄어들지 말 것"을 항상 전달해요.')}<div class="vn-opt"><label class="vn-lbl">추가 품질 지시 (선택)</label><textarea rows="2" data-vk="keepLenText" placeholder="예: 최소 4문단, 감각 묘사와 인물의 속마음을 포함"></textarea></div>${selRow('outLang', '이야기 출력 언어', [['ui', '화면 언어와 같게'], ['ko', '한국어'], ['en', 'English'], ['chat', '채팅 기록을 따라감']], '기존 채팅이 영어여도 한국어를 고르면 모델이 한국어로 쓰도록 강하게 지시해요. 선택지와 상태 정보도 같은 언어예요.')}${chk('translateInput', '내가 다른 언어로 입력하면 출력 언어로 번역해서 전송 (모델 1회)', '예: 한국어로 입력했는데 출력 언어가 English이면 영어로 번역한 문장이 SillyTavern에 기록돼요.')}`)}
       ${sec('일상 모드', `<div class="vn-opt"><label class="vn-lbl">이벤트 씨앗 (한 줄에 하나)</label><textarea rows="5" data-vk="dailySeeds"></textarea></div><div class="vn-opt"><label class="vn-lbl">인카운터 씨앗 (한 줄에 하나)</label><textarea rows="5" data-vk="encSeeds"></textarea><p class="vn-opt-h">하루 계획을 만들 때 이 중 일부가 무작위로 들어가 혼자 있는 시간·NPC·우연한 만남을 풍성하게 해요.</p></div>${numRow('encCount', '하루에 넣을 인카운터 수', 0, 4)}`)}
@@ -2135,7 +2191,7 @@ IMPORTANT: absolutely no text, letters, numbers, labels, signs with writing, leg
   async function playTurn(turn) {
     if (!st.open) return;
     const meta = M();
-    finishText(true); ui.clearEnd(); showWaiting(false);
+    finishText(true); ui.clearEnd(); showWaiting(false); ui.hideNpcSide();
     st.turn = turn; st.pendingEvt = null; st.evt = null;
     if (turn.loc) { meta.loc = turn.loc; saveMeta(); }
     if (turn.time) meta.time = turn.time;
@@ -2270,8 +2326,59 @@ ${log}`;
       if (it.summary) n.summary = String(it.summary).slice(0, 300);
       n.facts ||= {}; for (const [k, v] of Object.entries(it.facts || {})) if (k && v) n.facts[String(k).slice(0, 14)] = String(v).slice(0, 90);
     }
-    if (meta.npcs.length > 24) meta.npcs.splice(0, meta.npcs.length - 24);
+    if (meta.npcs.length > 40) meta.npcs.splice(0, meta.npcs.length - 40);
     saveMeta(); return { added, updated };
+  }
+  /* 카드·로어북 읽기: 파란 점(항상 켜짐, constant) 항목을 먼저, 그 다음 키워드 항목 */
+  async function loreEntriesAll(ch) {
+    const c = ctx(), out = [], seen = new Set();
+    const push = (book, e, keys, constant) => {
+      const text = String(e?.content || '').replace(/\s+/g, ' ').trim(); if (!text) return;
+      const title = String(e.comment || e.name || (keys || [])[0] || '').trim(), id = book + '|' + title + '|' + text.slice(0, 40);
+      if (seen.has(id)) return; seen.add(id);
+      out.push({ book, title, keys: (keys || []).filter(Boolean).slice(0, 6), constant: !!constant, text });
+    };
+    for (const name of await loreNames()) {
+      try {
+        if (!loreCache[name]) { const r = await fetch('/api/worldinfo/get', { method: 'POST', headers: c.getRequestHeaders(), body: JSON.stringify({ name }) }); if (!r.ok) continue; loreCache[name] = await r.json(); }
+        for (const e of Object.values(loreCache[name].entries || {})) { if (e.disable) continue; push(name, e, e.key, e.constant); }
+      } catch (err) { console.warn('[VN] lorebook', name, err); }
+    }
+    const cb = ctx().characters?.[ctx().characterId]?.data?.character_book?.entries || ch?.data?.character_book?.entries;
+    if (Array.isArray(cb)) for (const e of cb) { if (e.enabled === false) continue; push('(카드 내장)', e, e.keys, e.constant); }
+    return out.sort((a, b) => (b.constant ? 1 : 0) - (a.constant ? 1 : 0));
+  }
+  async function analyzeNpcsFromSources(ch) {
+    const meta = M(), c = ctx(), cast = castList().map((x) => x.name).join(', ') || ch?.name || '';
+    const entries = await loreEntriesAll(ch);
+    const cardText = castList().map((x) => `[Card: ${x.name}]\n${String(x.description || '').slice(0, 2500)}\n${String(x.personality || '').slice(0, 600)}\n${String(x.scenario || '').slice(0, 1200)}`).join('\n\n') || String(ch?.description || '').slice(0, 2500);
+    let lore = '', used = 0;
+    for (const e of entries) { const line = `- ${e.constant ? '[ALWAYS ON] ' : ''}${e.title || e.keys[0] || '(no title)'}${e.keys.length ? ` (keys: ${e.keys.join(', ')})` : ''}: ${e.text.slice(0, 520)}\n`; if (lore.length + line.length > 16000) break; lore += line; used++; }
+    if (!lore && !cardText.trim()) throw new Error('카드 설명도 로어북도 찾지 못했어요. 이 채팅에 로어북이 연결돼 있는지 확인해 주세요.');
+    const known = meta.npcs.map((n) => n.name).join(', ') || 'none';
+    const prompt = `Do NOT roleplay. Read the character card and the lorebook entries below and extract the NAMED individual people (NPCs) that exist in this story world, other than the main character(s) and the user.
+Entries marked [ALWAYS ON] are always-active lorebook entries and often describe important NPCs, but also use the other entries and the card. Reply with ONLY JSON:
+{"npcs":[{"name":"exact name as written","aliases":["short names or nicknames used in the text"],"role":"short role or relationship","desc":"one short line on appearance and personality","look":"comma-separated English visual tags for appearance and outfit, ONLY if the text states them, otherwise empty string","summary":"1-2 ${DLN()} sentences about this person's relationship to ${c.name1} and ${cast}","facts":{"<short ${DLN()} label such as ${STD_FACTS.join(', ')}>":"<value>"}}]}
+Rules: at most 30 npcs. Only individual people or beings who can talk. Never include places, items, factions, organizations, rules or world settings. Never include ${c.name1} or ${cast}. "facts" only holds things the text states (omit unknown items, values under 60 characters). Keep the exact names of already known NPCs: ${known}. Write texts in ${DLN()}.
+${cardText}
+
+[Lorebook]
+${lore || '(none)'}`;
+    const d = parseJSON(await llm(prompt, 4500, 'NPC 분석 (카드·로어북)'));
+    if (!d || !Array.isArray(d.npcs)) throw new Error('결과를 읽지 못했어요');
+    let added = 0, updated = 0;
+    for (const it of d.npcs.slice(0, 30)) {
+      const name = String(it?.name || '').trim().slice(0, 24); if (!name || sameName(name, c.name1) || castList().some((x) => sameName(x.name, name))) continue;
+      let n = meta.npcs.find((x) => sameName(x.name, name));
+      if (!n) { if (meta.npcs.length >= 40) continue; n = { name, role: '', desc: '' }; meta.npcs.push(n); added++; } else updated++;
+      n.role = n.role || String(it.role || '').slice(0, 24); n.desc = n.desc || String(it.desc || '').slice(0, 140);
+      if (it.summary && !n.summary) n.summary = String(it.summary).slice(0, 300);
+      if (it.look && !n.look) { const lk = cleanLook(String(it.look)); if (lk && lk.length >= 10) n.look = lk.slice(0, 600); }
+      const al = (Array.isArray(it.aliases) ? it.aliases : []).map((x) => String(x).trim().slice(0, 20)).filter((x) => x.length >= 2 && !sameName(x, name));
+      if (al.length) n.aliases = [...new Set([...(n.aliases || []), ...al])].slice(0, 5);
+      n.facts ||= {}; for (const [k, v] of Object.entries(it.facts || {})) if (k && v && !n.facts[String(k).slice(0, 14)]) n.facts[String(k).slice(0, 14)] = String(v).slice(0, 90);
+    }
+    saveMeta(); return { added, updated, scanned: used, constant: entries.filter((e) => e.constant).length };
   }
   async function analyzeHistory(ch, force = false) {
     const meta = M(), c = ctx();
@@ -2294,7 +2401,7 @@ Rules: "npcs" lists named people (not ${ch.name}, not ${c.name1}) who actually a
     if (d.summary) dos.summary = String(d.summary).slice(0, 300);
     for (const [k, v] of Object.entries(d.facts || {})) if (k && v) addFact(ch.name, String(k).slice(0, 14), String(v).slice(0, 90), false);
     for (const a of d.annivs || []) if (a?.name && /^\d{1,2}-\d{1,2}$/.test(a.md || '') && !meta.annivs.some((x) => x.name === a.name)) meta.annivs.push({ name: String(a.name).slice(0, 30), md: a.md.split('-').map((x) => x.padStart(2, '0')).join('-') });
-    for (const n of Array.isArray(d.npcs) ? d.npcs : []) if (n?.name && n.name !== ch.name && n.name !== c.name1 && !meta.npcs.some((x) => x.name === n.name)) { meta.npcs.push({ name: String(n.name).slice(0, 20), role: String(n.role || '').slice(0, 20), desc: String(n.desc || '').slice(0, 80) }); if (meta.npcs.length > 20) meta.npcs.shift(); }
+    for (const n of Array.isArray(d.npcs) ? d.npcs : []) if (n?.name && n.name !== ch.name && n.name !== c.name1 && !meta.npcs.some((x) => x.name === n.name)) { meta.npcs.push({ name: String(n.name).slice(0, 20), role: String(n.role || '').slice(0, 20), desc: String(n.desc || '').slice(0, 80) }); if (meta.npcs.length > 40) meta.npcs.shift(); }
     meta.analyzed[ch.name] = true; saveMeta();
     return true;
   }
@@ -2414,7 +2521,7 @@ Rules for variety and story:
       if (pl.arc) meta.arc = pl.arc;
       const cal = (meta.cal[day] ||= { events: [] }); cal.title = pl.title; cal.weather = pl.weather; cal.sched = [...(meta.sched[day] || [])];   // 계획은 지워져도 캘린더에는 남긴다
       cal.plan = { title: pl.title, weather: pl.weather, slots: pl.slots.map((s) => ({ time: s.time, loc: s.loc, kind: s.kind, npc: s.npc, premise: s.premise, special: s.special })) };
-      for (const n of pl.npcs || []) if (n?.name && !meta.npcs.some((x) => x.name === n.name)) { meta.npcs.push({ name: String(n.name).slice(0, 20), role: String(n.role || '').slice(0, 20), desc: String(n.desc || '').slice(0, 80) }); if (meta.npcs.length > 20) meta.npcs.shift(); }
+      for (const n of pl.npcs || []) if (n?.name && !meta.npcs.some((x) => x.name === n.name)) { meta.npcs.push({ name: String(n.name).slice(0, 20), role: String(n.role || '').slice(0, 20), desc: String(n.desc || '').slice(0, 80) }); if (meta.npcs.length > 40) meta.npcs.shift(); }
       for (const k of Object.keys(meta.plans)) if (+k < day - 3) { delete meta.plans[k]; for (const nk of Object.keys(meta.nodes)) if (nk.startsWith(k + ':')) delete meta.nodes[nk]; }
       saveMeta(); return pl;
     }).finally(() => { delete planP[key]; }));
@@ -2667,6 +2774,7 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
         try { const r = await npcLookTags(n, ch, true); toastr[r.text ? 'success' : 'warning'](r.text ? `외형 태그를 만들었어요 (근거: ${r.source})` : '카드·로어북·채팅 기록에서 이 인물의 외형 근거를 찾지 못했어요. 설명을 적어 주세요.'); } catch (e) { toastr.error('실패: ' + (e.message || e)); }
         ui.status(''); return renderModal();
       }
+      case 'npc-analyze-src': { el.disabled = true; ui.status('카드·로어북에서 NPC를 찾는 중…'); try { const r = await analyzeNpcsFromSources(ch); toastr.success(`NPC ${r.added}명을 추가하고 ${r.updated}명을 갱신했어요 (로어북 ${r.scanned}항목 읽음, 파란 점 ${r.constant}개)`); } catch (e) { toastr.error('분석 실패: ' + (e.message || e)); } ui.status(''); return renderModal(); }
       case 'npc-analyze': { el.disabled = true; ui.status('NPC를 분석하는 중…'); try { const n = await analyzeNpcs(ch); toastr.success(`NPC ${n.added}명을 추가하고 ${n.updated}명을 갱신했어요`); } catch (e) { toastr.error('분석 실패: ' + (e.message || e)); } ui.status(''); return renderModal(); }
       case 'npcfact-add': { const n = npcByName(st.npcSel); if (!n) return; const l = $q('#vn-nfl', ui.root).value.trim().slice(0, 14), v = $q('#vn-nfv', ui.root).value.trim().slice(0, 90); if (!l || !v) return; (n.facts ||= {})[l] = v; saveMeta(); return renderModal(); }
       case 'npcfact-del': { const n = npcByName(st.npcSel); if (n?.facts) { delete n.facts[el.dataset.l]; saveMeta(); } return renderModal(); }
@@ -2921,6 +3029,7 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
     if (cm && st.deferred && st.deferred.id === idx) { const d = st.deferred; st.deferred = null; showWaiting(false); playTurn(d); }      // 창을 닫은 사이에 온 새 답변
     else if (cm && st.turn && !(st.turn.src === 'chat' && st.turn.id === idx && st.turn.hash === hash(latest?.mes))) { showWaiting(false); replayLast(); }   // 보던 장면이 최신이 아니면 최신으로 맞춘다
     else if (st.turn) { showWaiting(false); ui.hud(st.turn); showEnd(st.turn); } else replayLast();
+    requestAnimationFrame(() => { ui.fit?.(); nudgeLayout(); });
     setTimeout(() => { onboardSprites().then(autoAnalyze).catch((e) => console.warn('[VN]', e)); }, 800);
   }
   function bindUI() {
