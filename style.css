@@ -473,3 +473,6 @@ body.vn-open #vn-fab { display: none !important; }
 .vn-sp.vn-sp-npc.left { left: calc(50% - var(--npc-gap, 26) * 1%); }
 #vn-root[data-size="xs"] .vn-sp.vn-sp-npc { height: calc(52% * var(--npc-s, 1)); }
 #vn-root[data-size="sm"] .vn-sp.vn-sp-npc { height: calc(60% * var(--npc-s, 1)); }
+
+/* ===== 1.9.3: 동물 NPC는 작게 ===== */
+#vn-root .vn-sp.vn-sp-npc.animal { height: calc(40% * var(--npc-s, 1)); }
