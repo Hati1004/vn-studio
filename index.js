@@ -783,30 +783,35 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
     logUsage('text', label, 'ok', { in: hit.j.usageMetadata?.promptTokenCount || estTok(prompt), out: hit.j.usageMetadata?.candidatesTokenCount || estTok(hit.out) });
     return hit.out;
   }
-  /* 이미지를 먼저 보고 외형 태그를 뽑는 공통 지시문: 설명·로어북은 이미지가 못 보여 주는 부분만 보태고,
-     나이·인종·국적·피부색·얼굴·체형·종은 이미지로만 정한다 (설명에서 이런 걸 가져와 사진과 달라지던 문제 방지) */
-  const lookVisionPrompt = (who, material) => `The attached image is the PRIMARY source. Look at it first and describe what you SEE of ${who}: the image alone decides apparent age, gender, face, skin tone, hair, eyes, build, clothing and species.\nThe written material below may ONLY add details the image cannot show (for example accessories or the back of the outfit). NEVER use it to state or change age, ethnicity, nationality, race, skin tone, face, body type or species, and ignore anything in it that contradicts the image. Do not write an ethnicity, a nationality, a race or a numeric age yourself; describe only what is visible.\nWrite ONE line of comma-separated English visual tags under 55 words describing only the physical appearance and outfit. The first tag is the kind of subject ("human" for a person, otherwise the animal species or breed). No names, no personality, no backstory. Output only that line.${material ? `\n\nWritten material:\n${material}` : ''}`;
-  async function extractLook(ch) {
-    const text = [ch.description, ch.personality].filter(Boolean).join('\n');
-    const only = ch._parent ? `\nThe description may cover several people. Describe ONLY the person named "${ch.name}".` : '';
-    if (S().lookVision && S().geminiKey.trim() && (ch.avatar || eeRefUrl(ch))) {      // 카드 PNG(표정 추출기 기준 사진이 있으면 그것)를 먼저 보고 뽑기
+  /* 외형 태그 한 줄 만들기. 주인공(카드)과 NPC가 이 함수를 똑같이 쓴다.
+     기본: 장면 생성기·표정 추출기와 같은 프롬프트로 '설명 글'에서 뽑는다(그 두 확장은 이미지를 보지 않고 글에서만 뽑는다).
+     '카드 PNG 이미지도 함께 보내기'가 켜져 있고 이미지가 있으면: 이미지는 얼굴·머리·눈·피부·체형만 보고,
+     옷·소품은 글(설명·로어북·채팅)에서만 가져온다. 이미지의 배경·장소·날씨·포즈·들고 있는 물건은 무시한다. */
+  async function lookFromMaterial({ name, text, imageUrl, only = '', label = '외형 태그 추출' }) {
+    if (S().lookVision && S().geminiKey.trim() && imageUrl) {
       try {
-        const img = await refInline(eeRefUrl(ch) || ('/characters/' + encodeURIComponent((ch._parent || ch).avatar)), 1024);
+        const img = await refInline(imageUrl, 1024);
         if (img) {
-          const out = cleanLook(await geminiText(lookVisionPrompt(`the character "${ch.name}"${only ? ' (several people may appear; describe ONLY this one)' : ''}`, text.slice(0, 2500)), [img], '외형 태그 추출 (이미지 우선)'));
+          const out = cleanLook(await geminiText(`The attached image is a portrait of "${name}". Use the image ONLY for the person's face, hair, eyes, skin tone, build and age impression. Take the clothing, armor and accessories from the description below only (if it does not mention clothing, leave clothing out). Ignore the image's background, location, weather, pose, its clothing and anything held in the hands.${only}\nWrite ONE line of comma-separated English visual tags describing only the physical appearance and outfit (age impression, hair, eyes, skin, build, clothing, accessories). No names, no personality, under 45 words. Output only that line.\n\n${String(text || '').slice(0, 2500)}`, [img], `${label} (이미지)`));
           if (out) return out;
         }
-      } catch (e) { console.warn('[VN] 이미지 기반 외형 추출 실패, 설명으로 대체', e); toastr.warning('이미지로 외형 태그를 만들지 못해 설명으로 대신 만들어요: ' + (e.message || e)); }
+      } catch (e) { console.warn('[VN] 이미지 기반 외형 추출 실패, 장면 생성기 방식으로 대체', e); toastr.warning('이미지로 외형 태그를 만들지 못해 설명 글로 대신 만들어요: ' + (e.message || e)); }
     }
-    if (!text.trim()) return '';
+    if (!String(text || '').trim()) return '';
     // 장면 생성기(Scene Studio)와 같은 프롬프트: 설명 텍스트 3000자, 한 줄, 영어 태그
-    const prompt = `Do NOT roleplay. From the description below, write ONE line of comma-separated English visual tags describing only the physical appearance and outfit (age impression, hair, eyes, skin, build, clothing, armor, accessories). No names, no personality, under 45 words. Output only that line.${only}\n\n${text.slice(0, 3000)}`;
+    const prompt = `Do NOT roleplay. From the description below, write ONE line of comma-separated English visual tags describing only the physical appearance and outfit (age impression, hair, eyes, skin, build, clothing, armor, accessories). No names, no personality, under 45 words. Output only that line.${only}\n\n${String(text).slice(0, 3000)}`;
     for (let i = 0; i < 2; i++) {
-      const raw = await llm(prompt, 1024, i ? '외형 태그 추출 (재시도)' : '외형 태그 추출');
+      const raw = await llm(prompt, 1024, i ? `${label} (재시도)` : label);
       const one = cleanLook(raw) || String(raw).trim().replace(/\s*\n+\s*/g, ' ').slice(0, 600);
       if (one && one.length >= 20 && (one.match(/,/g) || []).length >= 3) return one.slice(0, 600);
     }
     return '';
+  }
+  async function extractLook(ch) {
+    const text = [ch.description, ch.personality].filter(Boolean).join('\n');
+    const only = ch._parent ? `\nThe description may cover several people. Describe ONLY the person named "${ch.name}".` : '';
+    const imageUrl = (ch.avatar || eeRefUrl(ch)) ? (eeRefUrl(ch) || ('/characters/' + encodeURIComponent((ch._parent || ch).avatar))) : '';
+    return lookFromMaterial({ name: ch.name, text, imageUrl, only });
   }
   /* 이미지마다 외형이 달라지지 않도록, 처음 한 번 영어 외형 태그를 뽑아 저장해 두고 모든 생성에 똑같이 쓴다 */
   async function ensureLook(ch) {
@@ -1368,7 +1373,7 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
   }
   const npcByName = (name) => M().npcs.find((n) => n.name === name) || null;
   /* 예전에 AI 이미지를 지우면 원본(올린 이미지)까지 화면에서 사라지던 NPC를 되살린다 */
-  function healNpcImages() { let ch = false; for (const n of M().npcs || []) if (!n.img && n.base) { n.img = n.base; n.imgAi = false; ch = true; } if (ch) saveMeta(); return ch; }
+  function healNpcImages() { let ch = false; for (const n of M().npcs || []) { if (!n.img && n.base) { n.img = n.base; n.imgAi = false; ch = true; } if (n.lookSrc === 'photo' && !n.lookV) { n.look = ''; delete n.lookSrc; delete n.lookPhoto; ch = true; } } if (ch) saveMeta(); return ch; }
   /* 대표 이미지·NPC 이미지가 바뀌었을 때 지금 화면의 이미지를 새로 맞춘다 */
   async function refreshStageImages() {
     if (!st.open || !ui.root) return;
@@ -1684,7 +1689,7 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
     return `
       <div class="vn-row tight"><input type="text" id="vn-npcnew" placeholder="새 인물 이름" style="flex:1 1 140px"><button class="vn-btn sm" data-act="npc-add">인물 추가</button><button class="vn-btn sm primary" data-act="npc-analyze-src" title="카드 설명과 로어북(파란 점 항목 우선)을 한 번 읽어서 인물을 미리 모아요. 채팅에서 안 마주쳐도 등록돼요.">카드·로어북으로 NPC 찾기 (모델 1회)</button><button class="vn-btn sm" data-act="npc-analyze">채팅 기록으로 분석 (모델 1회)</button></div>
       <p class="vn-hint">NPC는 ${esc(cast.map((c) => c.name).join(', ') || '주인공')} 외에 이야기에 나오는 이름 있는 인물이에요. "카드·로어북으로 NPC 찾기"는 아직 만나지 않은 인물까지 카드와 로어북에서 한 번에 모아요. "채팅 기록으로 분석"은 대화에 나온 인물을 찾고 관계 요약과 정보를 갱신해요. NPC에 이미지를 넣어 두면 이야기에 나올 때 주인공 옆에 같이 나타나요.</p>
-      ${chk('lookVision', '외형 태그를 뽑을 때 카드 PNG 이미지도 함께 보내기', '켜면 NPC 이미지(주인공은 카드 PNG)를 먼저 보고 외형 태그를 만들어요. 설명·로어북은 이미지가 못 보여 주는 부분만 보태요. 끄면 설명·로어북·채팅 기록만 봐요.')}
+      ${chk('lookVision', '외형 태그를 뽑을 때 카드 PNG 이미지도 함께 보내기', '주인공과 같은 방식이에요. 켜면 NPC 이미지(주인공은 카드 PNG)로 얼굴·머리·눈·피부·체형만 보고, 옷·소품은 설명·로어북·채팅 글에서 가져와요. 이미지의 배경·장소·날씨·포즈·들고 있는 물건은 무시해요. 끄면 글만 봐요(장면 생성기·표정 추출기와 같은 방식).')}
       ${npcs.length ? `<div class="vn-npcs">${npcs.map((n) => `<button class="vn-npc ${n.name === st.npcSel ? 'sel' : ''}" data-act="npc-open" data-name="${esc(n.name)}"><span class="vn-npc-img">${n.img ? `<img src="${esc(n.img)}" alt="">` : '👤'}</span><b>${esc(n.name)}</b><small>${esc(n.role || 'NPC')}</small></button>`).join('')}</div>` : '<p class="vn-hint">아직 등장인물이 없어요. 위에서 직접 추가하거나 "채팅 기록으로 분석"을 눌러 주세요. 일상 모드에서 새 인물이 나오면 자동으로 모여요.</p>'}
       ${sel ? `<div class="vn-npced"><div><div class="vn-npced-pic">${sel.img ? `<img src="${esc(sel.img)}" alt="${esc(sel.name)}" title="클릭하면 크게 보기">` : '<span>이미지 없음</span>'}</div>
         <div class="vn-dos-picbtns">${fileInput('npc-up', '', false, '이미지 바꾸기')}${npcImgPool().length ? '<button class="vn-btn" data-act="npc-pick">내 이미지에서 고르기</button>' : ''}<button class="vn-btn" data-act="npc-gen">AI로 만들기</button>${sel.img ? '<button class="vn-btn" data-act="npc-cut">✂ 배경 제거</button>' + (S().cutOrig?.[sel.img] ? '<button class="vn-btn" data-act="npc-uncut">↩ 원본으로 되돌리기</button>' : '') + '<button class="vn-btn" data-act="npc-imgdel">' + (sel.imgAi && sel.base && sel.base !== sel.img ? 'AI 이미지 삭제 (원본 유지)' : '이미지 삭제') + '</button>' : ''}</div></div>
@@ -1692,10 +1697,10 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
           <div class="vn-row tight"><input type="text" data-act="npc-field" data-f="name" value="${esc(sel.name)}" placeholder="이름" style="flex:1 1 110px"><input type="text" data-act="npc-field" data-f="role" value="${esc(sel.role || '')}" placeholder="역할 / 관계" style="flex:1 1 90px"></div>
           ${S().useSS && ssWorld()?.places?.length ? `<div class="vn-row tight"><label>지도 위치</label><select data-act="npc-place" data-name="${esc(sel.name)}" style="flex:1 1 140px">${placeOptions(npcMarker(sel.name)?.place, '위치 모름')}</select></div>` : ''}
           <div class="vn-row tight"><label>이미지가 보는 방향</label><select data-act="npc-field" data-f="faces" style="flex:1 1 140px">${[['', '모름 (반전 안 함)'], ['left', '왼쪽을 봐요'], ['right', '오른쪽을 봐요']].map(([v, l]) => `<option value="${v}" ${(sel.faces || '') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
-          <p class="vn-hint">고르거나 올린 이미지가 '기준 사진'이에요. "AI로 만들기"를 누르면 이 이미지를 AI에 함께 보내 NPC를 만들고, 외형 태그도 이미지를 먼저 보고 자동으로 채워요. 설명·로어북은 이미지가 못 보여 주는 부분만 보태고, 나이·인종은 이미지로만 정해요. 사람이든 동물이든 같아요.</p>
-          <textarea rows="2" data-act="npc-field" data-f="desc" placeholder="설명 (메모예요. 외형 태그는 이미지를 먼저 보고, 설명은 이미지가 못 보여 주는 부분만 보태요)">${esc(sel.desc || '')}</textarea>
-          <textarea rows="2" data-act="npc-field" data-f="look" placeholder="외형 태그 (영어). 이미지를 정하고 \"AI로 만들기\"를 누르거나 아래 버튼을 누르면 이미지를 보고 채워요">${esc(sel.look || '')}</textarea>
-          <div class="vn-row tight"><button class="vn-btn sm" data-act="npc-look">이미지로 외형 태그 뽑기 (모델 1회)</button>${eeNpcLook(sel) ? '<button class="vn-btn sm" data-act="npc-look-ee" title="표정 추출기에서 만든 같은 이름 캐릭터의 외형 태그를 가져와요">표정 추출기 외형 가져오기</button>' : ''}</div>
+          <p class="vn-hint">외형 태그는 주인공과 똑같이 만들어요: 장면 생성기·표정 추출기와 같은 프롬프트로 설명·로어북·채팅 기록에서 한 번 뽑아 저장하고, 계속 같은 태그를 써요(직접 고치면 고정). 고르거나 올린 이미지는 "AI로 만들기"에서 얼굴·머리·눈을 알려 주는 참조로만 함께 보내고, 옷·소품은 외형 태그를 따라요. 이미지의 배경이나 우산 같은 건 가져오지 않아요.</p>
+          <textarea rows="2" data-act="npc-field" data-f="desc" placeholder="설명 (외형 태그를 뽑을 때 쓰는 글이에요. 옷·소품은 여기와 로어북·채팅 기준이에요)">${esc(sel.desc || '')}</textarea>
+          <textarea rows="2" data-act="npc-field" data-f="look" placeholder="외형 태그 (영어). 비워 두면 \"AI로 만들기\"나 아래 버튼을 누를 때 설명·로어북·채팅 기록에서 뽑아 저장해요">${esc(sel.look || '')}</textarea>
+          <div class="vn-row tight"><button class="vn-btn sm" data-act="npc-look" title="주인공과 같은 방식: 설명·로어북·채팅 기록에서 뽑아요(카드 PNG 전송이 켜져 있으면 이미지로 얼굴·머리·눈도 봐요)">외형 태그 뽑기 (모델 1회)</button>${eeNpcLook(sel) ? '<button class="vn-btn sm" data-act="npc-look-ee" title="표정 추출기에서 만든 같은 이름 캐릭터의 외형 태그를 가져와요">표정 추출기 외형 가져오기</button>' : ''}</div>
           <textarea rows="2" data-act="npc-field" data-f="summary" placeholder="관계 요약 (${esc(ctx().name1 || '나')}와 ${esc(cast[0]?.name || '캐릭터')} 사이에서의 위치)">${esc(sel.summary || '')}</textarea>
           <h4>알아낸 정보</h4>
           <div class="vn-facts">${[...NPC_STD(), ...extra].map(fact).join('')}</div>
@@ -2853,69 +2858,53 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
     const hit = stCharByName(n.name);
     return hit?.avatar ? '/characters/' + encodeURIComponent(hit.avatar) : '';
   }
-  async function npcVisionLook(n, url, material) {
-    const img = await refInline(url, 1024); if (!img) throw new Error('이미지를 불러오지 못했어요');
-    const out = cleanLook(await geminiText(lookVisionPrompt(`the subject named "${n.name}" (a person, an animal or a creature)`, material), [img], `NPC 외형 태그 (이미지 우선: ${n.name})`));
-    return out && out.length >= 15 ? out.slice(0, 600) : '';
-  }
-  /* 외형 태그: 이미지가 있으면 이미지를 먼저 보고 그걸 우선으로 채운다(설명·로어북·채팅 기록은 이미지가 못 보여 주는 부분만 보태고, 나이·인종은 이미지로만).
-     이미지가 없을 때만 표정 추출기 태그 → 설명·로어북·채팅 기록 순으로 쓴다 */
-  async function npcLookTags(n, ch, force = false) {
-    const s = S(), photo = npcBaseUrl(n) || (force && n.img ? n.img : '');
-    const stale = !!(photo && n.look && n.lookSrc !== 'manual' && n.lookPhoto !== photo);
-    if (n.look && !force && !stale) return { text: n.look, source: '저장된 외형 태그' };
+  /* NPC의 '카드 설명'에 해당하는 글: 역할·설명·카드 언급·로어북·채팅 언급 */
+  async function npcMaterial(n, ch) {
     const src = await npcSources(n, ch).catch(() => ({ card: [], lore: '', chat: [] })), parts = [];
     if (n.role) parts.push(`[Role] ${n.role}`); if (n.desc) parts.push(`[Notes] ${n.desc}`);
     if (src.card.length) parts.push(`[Character card mentions]\n- ${src.card.join('\n- ')}`);
     if (src.lore) parts.push(`[Lorebook]\n${src.lore}`);
     if (src.chat.length) parts.push(`[Chat mentions]\n- ${src.chat.join('\n- ')}`);
-    const material = parts.join('\n\n').slice(0, 3000);
-    if (photo && s.lookVision && s.geminiKey.trim()) {   // ① 이미지 우선. 실패하면 오류를 그대로 알려서, 사진과 다른 사람이 나오는 태그로 조용히 바뀌지 않게 한다
-      const out = await npcVisionLook(n, photo, material);
-      if (out) { n.look = out; n.lookSrc = 'photo'; n.lookPhoto = photo; saveMeta(); return { text: out, source: material ? '이미지 우선 (설명은 보조)' : '이미지' }; }
-      return { text: '', source: '', reason: 'empty' };
-    }
-    if (n.look && !force) return { text: n.look, source: '저장된 외형 태그' };
-    const ee = !photo ? eeNpcLook(n) : '';   // ② 표정 추출기에 같은 이름 캐릭터의 태그가 있으면
-    if (ee) { n.look = ee.slice(0, 600); n.lookSrc = 'ee'; saveMeta(); return { text: n.look, source: '표정 추출기' }; }
-    if (photo && !s.geminiKey.trim()) return { text: '', source: '', reason: 'no-key' };
-    const source = (src.card.length || src.lore) ? '카드·로어북' : src.chat.length ? '채팅 기록' : n.desc ? '설명' : '';   // ③ 자료로
-    if (!source) return { text: '', source: '', reason: photo ? 'no-key' : 'no-image' };
-    const raw = await llm(`Do NOT roleplay. From the material below about the person named "${n.name}", write ONE line of comma-separated English visual tags describing only the physical appearance and outfit (age impression, gender, hair, eyes, skin, build, clothing, accessories). Use what the material states or clearly implies; where it says nothing, choose plausible fitting details. No names, no personality, under 45 words. Output only that line.\n\n${parts.join('\n\n')}`, 1024, `NPC 외형 추출 (${n.name})`);
-    const one = cleanLook(raw) || String(raw).trim().replace(/\s*\n+\s*/g, ' ').slice(0, 600);
-    if (one.length >= 15) { n.look = one.slice(0, 600); n.lookSrc = 'text'; delete n.lookPhoto; saveMeta(); return { text: n.look, source }; }
-    return { text: '', source, reason: 'empty' };
+    return parts.join('\n\n');
+  }
+  /* 외형 태그 뽑기(버튼): 주인공의 extractLook과 같은 함수(lookFromMaterial)를 쓴다 */
+  async function npcLookTags(n, ch) {
+    const text = await npcMaterial(n, ch), imageUrl = npcBaseUrl(n) || n.img || '';
+    const out = await lookFromMaterial({ name: n.name, text, imageUrl, only: `\nThe material may mention several people. Describe ONLY the person named "${n.name}".`, label: `NPC 외형 태그 (${n.name})` });
+    if (out) { n.look = out; n.lookSrc = 'auto'; n.lookV = 2; saveMeta(); return { text: out, source: S().lookVision && imageUrl ? '이미지(얼굴·머리·눈) + 설명 글(옷·소품)' : '설명·로어북·채팅 기록' }; }
+    return { text: '', source: '', reason: (!text.trim() && !imageUrl) ? 'no-material' : 'empty' };
+  }
+  /* 주인공의 ensureLook과 같은 순서: 직접 고친 태그 → 연동 태그(장면 생성기·표정 추출기) → 저장된 태그 → 뽑아서 저장 */
+  async function ensureNpcLook(n, ch) {
+    if (n.lookSrc === 'photo' && !n.lookV) { n.look = ''; delete n.lookSrc; delete n.lookPhoto; }   // 1.10에서 이미지 속 배경·포즈까지 섞여 저장된 태그는 버린다
+    if (n.lookSrc === 'manual' && n.look?.trim()) return n.look.trim();
+    const linked = ssLookTag({ name: n.name }) || eeNpcLook(n); if (linked) return linked.slice(0, 600);
+    if (n.look?.trim()) return n.look.trim();
+    try { const r = await npcLookTags(n, ch); if (r.text) return r.text; } catch (e) { console.warn('[VN] NPC 외형 추출 실패', e); }
+    return (await npcMaterial(n, ch)).replace(/\s+/g, ' ').slice(0, 300);   // 저장하지 않는 임시 대체
   }
 
   /* 동물 여부: 이미지에서 뽑은 외형 태그의 맨 앞 태그로만 판단한다 */
   const NPC_ANIMAL_RE = /\b(cat|kitten|dog|puppy|rabbit|bunny|hamster|parrot|bird|turtle|tortoise|hedgehog|fox|wolf|fish|horse|pony|cow|pig|sheep|goat|mouse|rat|squirrel|duck|chicken|owl|snake|lizard|animal|creature|pet)\b/i;
   const NPC_HUMAN_RE = /\b(human|man|woman|boy|girl|person|male|female|adult|teen|teenager|child|catboy|catgirl)\b/i;
   function npcIsAnimal(n) { const first = String(n?.look || '').split(',').slice(0, 2).join(' '); return !!first && NPC_ANIMAL_RE.test(first) && !NPC_HUMAN_RE.test(first); }
-  /* 'AI로 만들기': 기준 이미지를 AI에 함께 보내 만들고, 같은 흐름에서 외형 태그도 자동으로 채운다 */
+  /* 'AI로 만들기': 주인공의 genSpriteImage와 같은 방식. 기준 이미지는 '누구인지(얼굴·머리·눈)'만 알려 주는 참조이고, 옷·소품은 외형 태그(설명·채팅 기준)를 따른다 */
   async function genNpcImage(n, ch) {
-    const s = S(), refs = [], notes = [], photo = npcBaseUrl(n), canLook = s.lookVision && s.geminiKey.trim();
-    let tags = String(n.look || '').trim();
-    if (photo && canLook && (!tags || (n.lookSrc !== 'manual' && n.lookPhoto !== photo))) {   // ① 이미지를 먼저 보고 외형 태그 채우기 (이미 이 이미지로 뽑았거나 직접 고친 태그는 그대로)
-      try { const r = await npcLookTags(n, ch, true); if (r.text) tags = r.text; }
-      catch (e) { console.warn('[VN] NPC 외형 태그 추출 실패', e); toastr.warning('외형 태그는 만들지 못했어요. 선택한 이미지만으로 계속 만들어요: ' + (e.message || e)); }
-    }
-    if (!photo && !tags) { const ee = eeNpcLook(n); if (ee) { tags = ee.slice(0, 600); n.look = tags; n.lookSrc = 'ee'; saveMeta(); } }
-    if (photo) { const r = await refInline(photo, 1280); if (r) { refs.push(r); notes.push(`Reference image ${refs.length} is the PHOTO of "${n.name}" and the ONLY source for what the subject looks like (a person, an animal or a creature). Keep EXACTLY the same kind of subject, face or head, skin tone, fur or hair color and pattern, age impression, build, clothing and accessories. Do not change anything because of text.`); } }
-    const hasPhoto = refs.length > 0, animal = npcIsAnimal({ look: tags });
+    const s = S(), refs = [], notes = [], photo = npcBaseUrl(n);
+    const look = await ensureNpcLook(n, ch), animal = npcIsAnimal({ look });
+    if (photo) { const r = await refInline(photo, 1280); if (r) { refs.push(r); notes.push(`Reference image ${refs.length} is the photo of "${n.name}". Match the face${animal ? '' : ', hair and eyes'}, skin tone and body build of that ${animal ? 'animal' : 'person'}. Use it ONLY for who ${n.name} is: do NOT copy its clothing, background, location, weather, lighting, pose, camera framing, or anything held or carried (such as an umbrella or a bag).`); } }
+    const hasPhoto = refs.length > 0;
     const bgUrl = bgFor(M().loc || '')?.url;
     if (bgUrl) { const r = await refInline(bgUrl, 768); if (r) { refs.push(r); notes.push(`Reference image ${refs.length} is the current background: match its color grading and light, but do NOT draw this scene.`); } }
     const worldLook = String(ssWorld()?.look || '').slice(0, 200);
-    const appearance = tags ? ` (${tags})` : (hasPhoto ? '' : (n.desc ? `. ${n.desc}` : `. No appearance is specified, so invent a distinctive, fitting look for this role${worldLook ? ` in this world: ${worldLook}` : ''}`));
-    st.lastNpcSrc = hasPhoto ? `기준 이미지${tags ? ' + 외형 태그' : ''}` : (tags ? '외형 태그' : (n.desc ? '설명' : '자료 없음 (AI가 역할에 맞게 설계)'));
-    const subject = hasPhoto && !tags ? 'the subject shown in the photo reference (a person, an animal or a creature, exactly as in the photo)' : (animal ? `an animal named "${n.name}": a real animal, NOT a human, NOT anthropomorphic` : `an NPC named "${n.name}"`);
-    const shot = animal ? 'full-body view' : (hasPhoto && !tags ? 'natural framing (waist-up for a person, full body for an animal)' : 'waist-up portrait');
-    const pose = animal ? "natural animal pose, head turned slightly toward the viewer's LEFT" : "natural expressive pose, three-quarter view with the body and face turned slightly toward the viewer's LEFT";
-    const prompt = `${notes.join(' ')}\nGenerate one image: a visual novel sprite, ${shot} of ${subject}${!hasPhoto && n.role ? `, ${n.role}` : ''}${appearance}.${hasPhoto ? ' The photo reference decides the look; the tags (if any) only supplement it.' : ''} ${pose}. Rendering style: ${styleMain()}. Match EXACTLY the rendering style, level of realism, lighting and color grading described above and in the references (if photorealistic, make this photorealistic too, NOT anime or illustration). Background: plain flat solid pure white, no floor, no shadow, no gradient. Single subject, no text, no watermark.`;
+    const appearance = look ? ` (${look})` : (n.desc ? `. ${n.desc}` : `. No appearance is specified, so invent a distinctive, fitting look for this role${worldLook ? ` in this world: ${worldLook}` : ''}`);
+    st.lastNpcSrc = `${hasPhoto ? '기준 이미지(얼굴·머리·눈) + ' : ''}${look ? '외형 태그' : (n.desc ? '설명' : '자료 없음 (AI가 역할에 맞게 설계)')}`;
+    const subject = animal ? `an animal named "${n.name}": a real animal, NOT a human, NOT anthropomorphic` : `"${n.name}"`;
+    const shot = animal ? 'full-body view' : 'waist-up portrait';
+    const pose = animal ? "natural animal pose, head turned slightly toward the viewer's LEFT" : "natural, relaxed standing pose, three-quarter view with the body and face turned slightly toward the viewer's LEFT";
+    const prompt = `${notes.join(' ')}\nGenerate one image: a visual novel character sprite, ${shot} of ${subject}${n.role ? `, ${n.role}` : ''}${appearance}. ${pose}. Rendering style: ${styleMain()}. Match EXACTLY the rendering style, level of realism, lighting and color grading described here (if photorealistic, make this photorealistic too, NOT anime or illustration). Background: plain flat solid pure white, no floor, no shadow, no gradient, no props behind. Single subject, no text, no UI, no watermark.`;
     let url = await geminiGenerate(prompt, refs, animal ? '1:1' : '3:4', 'vngen_', `NPC ${n.name}`);
     if (s.cutout) { try { const c = await cutoutImage(url); if (c.url) { const orig = url; url = c.url; dropImage(orig); } } catch { /* 원본 유지 */ } }
-    if (!hasPhoto && !tags && canLook) {   // ② 사진 없이 만들었다면 만들어진 이미지를 보고 외형 태그를 채워 둔다 (이후 생성도 같은 모습으로)
-      try { const out = await npcVisionLook(n, url, ''); if (out) { n.look = out; n.lookSrc = 'photo'; n.lookPhoto = ''; saveMeta(); } } catch (e) { console.warn('[VN] 만든 이미지로 외형 태그 채우기 실패', e); }
-    }
     n.faces = 'left';   // 위 지시대로 왼쪽을 보게 만들었으니 기록해 둔다 (NPC 탭에서 바꿀 수 있어요)
     return url;
   }
@@ -3025,7 +3014,7 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
       case 'sub-del': { const card = ch._parent || ch; if (!confirm(`'${el.dataset.name}' 인물을 목록에서 뺄까요? (만든 이미지는 서버에 남아요)`)) return; cdata(card).subs = subsOf(card).filter((x) => x !== el.dataset.name); saveSettings(); st.selChar = chKey(card); return renderModal(); }
       case 'npc-look': {
         const n = npcByName(st.npcSel); if (!n) return; el.disabled = true; ui.status('NPC 외형 근거를 찾는 중…');
-        try { const r = await npcLookTags(n, ch, true); toastr[r.text ? 'success' : 'warning'](r.text ? `이미지를 보고 외형 태그를 만들었어요` : ({ 'no-image': '먼저 이미지 바꾸기 / 내 이미지에서 고르기로 이미지를 정해 주세요.', 'no-key': '이미지를 보려면 이미지 API 키가 필요해요.', 'no-load': '이미지를 불러오지 못했어요.' }[r.reason] || '모델이 태그를 주지 않았어요. 다시 시도해 주세요.')); } catch (e) { toastr.error('실패: ' + (e.message || e)); }
+        try { const r = await npcLookTags(n, ch, true); toastr[r.text ? 'success' : 'warning'](r.text ? `외형 태그를 만들었어요 (근거: ${r.source})` : ({ 'no-material': '이 NPC에 대한 설명·로어북·채팅 자료가 없어요. 설명을 적거나 이미지를 정해 주세요.', 'no-image': '뽑을 자료가 없어요. 설명을 적어 주세요.', 'no-key': '이미지를 보려면 이미지 API 키가 필요해요.' }[r.reason] || '모델이 태그를 주지 않았어요. 다시 시도해 주세요.')); } catch (e) { toastr.error('실패: ' + (e.message || e)); }
         ui.status(''); return renderModal();
       }
       case 'npc-analyze-src': { el.disabled = true; ui.status('카드·로어북에서 NPC를 찾는 중…'); try { const r = await analyzeNpcsFromSources(ch); toastr.success(`NPC ${r.added}명을 추가하고 ${r.updated}명을 갱신했어요 (로어북 ${r.scanned}항목 읽음, 파란 점 ${r.constant}개${r.batches > 1 ? `, ${r.batches}번에 나눠 분석${r.failed ? ` · ${r.failed}번 실패` : ''}` : ''})`); } catch (e) { toastr.error('분석 실패: ' + (e.message || e)); } ui.status(''); return renderModal(); }
@@ -3065,9 +3054,9 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
       case 'npc-gen': {
         const n = npcByName(st.npcSel); if (!n) return;
         if (!s.geminiKey.trim()) return toastr.warning('이미지 API 키를 먼저 넣어 주세요.');
-        if (!confirm(`'${n.name}' 이미지를 AI로 만들까요?${npcBaseUrl(n) ? '\n선택한 이미지를 AI에 함께 보내 만들고, 외형 태그도 이미지를 보고 자동으로 채워요.' : ''}\n(이미지 1회${s.lookVision ? ' + 텍스트 1회' : ''} 요금)`)) return;
+        if (!confirm(`'${n.name}' 이미지를 AI로 만들까요?${npcBaseUrl(n) ? '\n선택한 이미지는 얼굴·머리·눈 참조로만 보내고, 옷·소품은 외형 태그(설명·채팅 기준)를 따라요.' : ''}\n(이미지 1회${n.look ? '' : ' + 외형 태그가 없으면 텍스트 1회'} 요금)`)) return;
         ui.status(`${n.name} 이미지를 만드는 중…`);
-        try { const old = n.img; if (old && !n.imgAi && !n.base) n.base = old; n.img = await genNpcImage(n, ch); n.imgAi = true; saveMeta(); if (old && old !== n.base && old !== n.photo) dropImage(old); toastr.info(`외형 근거: ${st.lastNpcSrc}${n.look ? ' · 외형 태그도 채웠어요' : ''}`); } catch (e) { toastr.error('생성 실패: ' + (e.message || e)); }
+        try { const old = n.img; if (old && !n.imgAi && !n.base) n.base = old; n.img = await genNpcImage(n, ch); n.imgAi = true; saveMeta(); if (old && old !== n.base && old !== n.photo) dropImage(old); toastr.info(`외형 근거: ${st.lastNpcSrc}${n.look ? ' · 외형 태그도 저장했어요' : ''}`); } catch (e) { toastr.error('생성 실패: ' + (e.message || e)); }
         ui.status(''); return renderModal();
       }
       /* 개발자 */
