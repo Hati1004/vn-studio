@@ -787,19 +787,26 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
      기본: 장면 생성기·표정 추출기와 같은 프롬프트로 '설명 글'에서 뽑는다(그 두 확장은 이미지를 보지 않고 글에서만 뽑는다).
      '카드 PNG 이미지도 함께 보내기'가 켜져 있고 이미지가 있으면: 이미지는 얼굴·머리·눈·피부·체형만 보고,
      옷·소품은 글(설명·로어북·채팅)에서만 가져온다. 이미지의 배경·장소·날씨·포즈·들고 있는 물건은 무시한다. */
-  async function lookFromMaterial({ name, text, imageUrl, only = '', label = '외형 태그 추출' }) {
+  async function lookFromMaterial({ name, text, imageUrl, only = '', label = '외형 태그 추출', bodyOnly = false }) {
+    const scope = bodyOnly ? 'the physical appearance of the body (age impression, build, skin, face shape, hair, eyes, and distinctive body features such as ears, tail, horns, wings, markings)' : 'the physical appearance and outfit (age impression, hair, eyes, skin, build, clothing, accessories)';
+    const banned = bodyOnly ? ' Do not mention clothing, armor, accessories, props, held items, location, pose, weather or background.' : '';
     if (S().lookVision && S().geminiKey.trim() && imageUrl) {
       try {
         const img = await refInline(imageUrl, 1024);
         if (img) {
-          const out = cleanLook(await geminiText(`The attached image is a portrait of "${name}". Use the image ONLY for the person's face, hair, eyes, skin tone, build and age impression. Take the clothing, armor and accessories from the description below only (if it does not mention clothing, leave clothing out). Ignore the image's background, location, weather, pose, its clothing and anything held in the hands.${only}\nWrite ONE line of comma-separated English visual tags describing only the physical appearance and outfit (age impression, hair, eyes, skin, build, clothing, accessories). No names, no personality, under 45 words. Output only that line.\n\n${String(text || '').slice(0, 2500)}`, [img], `${label} (이미지)`));
+          const vp = bodyOnly
+            ? `The attached image is a portrait of "${name}". Use the image for the person's face, hair, eyes, skin tone, build and age impression, and for visible body features such as ears or a tail. Use the description below only for body features the image cannot show. Ignore the image's clothing, accessories, background, location, weather, pose and anything held in the hands.${only}\nWrite ONE line of comma-separated English visual tags describing only ${scope}.${banned} No names, no personality, under 45 words. Output only that line.\n\n${String(text || '').slice(0, 2500)}`
+            : `The attached image is a portrait of "${name}". Use the image ONLY for the person's face, hair, eyes, skin tone, build and age impression. Take the clothing, armor and accessories from the description below only (if it does not mention clothing, leave clothing out). Ignore the image's background, location, weather, pose, its clothing and anything held in the hands.${only}\nWrite ONE line of comma-separated English visual tags describing only the physical appearance and outfit (age impression, hair, eyes, skin, build, clothing, accessories). No names, no personality, under 45 words. Output only that line.\n\n${String(text || '').slice(0, 2500)}`;
+          const out = cleanLook(await geminiText(vp, [img], `${label} (이미지)`));
           if (out) return out;
         }
       } catch (e) { console.warn('[VN] 이미지 기반 외형 추출 실패, 장면 생성기 방식으로 대체', e); toastr.warning('이미지로 외형 태그를 만들지 못해 설명 글로 대신 만들어요: ' + (e.message || e)); }
     }
     if (!String(text || '').trim()) return '';
-    // 장면 생성기(Scene Studio)와 같은 프롬프트: 설명 텍스트 3000자, 한 줄, 영어 태그
-    const prompt = `Do NOT roleplay. From the description below, write ONE line of comma-separated English visual tags describing only the physical appearance and outfit (age impression, hair, eyes, skin, build, clothing, armor, accessories). No names, no personality, under 45 words. Output only that line.${only}\n\n${String(text).slice(0, 3000)}`;
+    // 장면 생성기(Scene Studio)와 같은 프롬프트: 설명 텍스트 3000자, 한 줄, 영어 태그 (NPC는 몸의 생김새만)
+    const prompt = bodyOnly
+      ? `Do NOT roleplay. From the description below, write ONE line of comma-separated English visual tags describing only ${scope}.${banned} No names, no personality, under 45 words. Output only that line.${only}\n\n${String(text).slice(0, 3000)}`
+      : `Do NOT roleplay. From the description below, write ONE line of comma-separated English visual tags describing only the physical appearance and outfit (age impression, hair, eyes, skin, build, clothing, armor, accessories). No names, no personality, under 45 words. Output only that line.${only}\n\n${String(text).slice(0, 3000)}`;
     for (let i = 0; i < 2; i++) {
       const raw = await llm(prompt, 1024, i ? `${label} (재시도)` : label);
       const one = cleanLook(raw) || String(raw).trim().replace(/\s*\n+\s*/g, ' ').slice(0, 600);
@@ -1689,7 +1696,7 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
     return `
       <div class="vn-row tight"><input type="text" id="vn-npcnew" placeholder="새 인물 이름" style="flex:1 1 140px"><button class="vn-btn sm" data-act="npc-add">인물 추가</button><button class="vn-btn sm primary" data-act="npc-analyze-src" title="카드 설명과 로어북(파란 점 항목 우선)을 한 번 읽어서 인물을 미리 모아요. 채팅에서 안 마주쳐도 등록돼요.">카드·로어북으로 NPC 찾기 (모델 1회)</button><button class="vn-btn sm" data-act="npc-analyze">채팅 기록으로 분석 (모델 1회)</button></div>
       <p class="vn-hint">NPC는 ${esc(cast.map((c) => c.name).join(', ') || '주인공')} 외에 이야기에 나오는 이름 있는 인물이에요. "카드·로어북으로 NPC 찾기"는 아직 만나지 않은 인물까지 카드와 로어북에서 한 번에 모아요. "채팅 기록으로 분석"은 대화에 나온 인물을 찾고 관계 요약과 정보를 갱신해요. NPC에 이미지를 넣어 두면 이야기에 나올 때 주인공 옆에 같이 나타나요.</p>
-      ${chk('lookVision', '외형 태그를 뽑을 때 카드 PNG 이미지도 함께 보내기', '주인공과 같은 방식이에요. 켜면 NPC 이미지(주인공은 카드 PNG)로 얼굴·머리·눈·피부·체형만 보고, 옷·소품은 설명·로어북·채팅 글에서 가져와요. 이미지의 배경·장소·날씨·포즈·들고 있는 물건은 무시해요. 끄면 글만 봐요(장면 생성기·표정 추출기와 같은 방식).')}
+      ${chk('lookVision', '외형 태그를 뽑을 때 카드 PNG 이미지도 함께 보내기', '켜면 이미지(주인공은 카드 PNG, NPC는 NPC 이미지)로 얼굴·머리·눈·피부·체형을 봐요. 이미지의 배경·장소·날씨·포즈·들고 있는 물건은 무시해요. NPC는 몸의 생김새만 뽑고 옷·소품·장소는 뽑지 않아요(필요하면 외형 태그 칸에 직접 적으세요). 끄면 글만 봐요.')}
       ${npcs.length ? `<div class="vn-npcs">${npcs.map((n) => `<button class="vn-npc ${n.name === st.npcSel ? 'sel' : ''}" data-act="npc-open" data-name="${esc(n.name)}"><span class="vn-npc-img">${n.img ? `<img src="${esc(n.img)}" alt="">` : '👤'}</span><b>${esc(n.name)}</b><small>${esc(n.role || 'NPC')}</small></button>`).join('')}</div>` : '<p class="vn-hint">아직 등장인물이 없어요. 위에서 직접 추가하거나 "채팅 기록으로 분석"을 눌러 주세요. 일상 모드에서 새 인물이 나오면 자동으로 모여요.</p>'}
       ${sel ? `<div class="vn-npced"><div><div class="vn-npced-pic">${sel.img ? `<img src="${esc(sel.img)}" alt="${esc(sel.name)}" title="클릭하면 크게 보기">` : '<span>이미지 없음</span>'}</div>
         <div class="vn-dos-picbtns">${fileInput('npc-up', '', false, '이미지 바꾸기')}${npcImgPool().length ? '<button class="vn-btn" data-act="npc-pick">내 이미지에서 고르기</button>' : ''}<button class="vn-btn" data-act="npc-gen">AI로 만들기</button>${sel.img ? '<button class="vn-btn" data-act="npc-cut">✂ 배경 제거</button>' + (S().cutOrig?.[sel.img] ? '<button class="vn-btn" data-act="npc-uncut">↩ 원본으로 되돌리기</button>' : '') + '<button class="vn-btn" data-act="npc-imgdel">' + (sel.imgAi && sel.base && sel.base !== sel.img ? 'AI 이미지 삭제 (원본 유지)' : '이미지 삭제') + '</button>' : ''}</div></div>
@@ -1697,10 +1704,10 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
           <div class="vn-row tight"><input type="text" data-act="npc-field" data-f="name" value="${esc(sel.name)}" placeholder="이름" style="flex:1 1 110px"><input type="text" data-act="npc-field" data-f="role" value="${esc(sel.role || '')}" placeholder="역할 / 관계" style="flex:1 1 90px"></div>
           ${S().useSS && ssWorld()?.places?.length ? `<div class="vn-row tight"><label>지도 위치</label><select data-act="npc-place" data-name="${esc(sel.name)}" style="flex:1 1 140px">${placeOptions(npcMarker(sel.name)?.place, '위치 모름')}</select></div>` : ''}
           <div class="vn-row tight"><label>이미지가 보는 방향</label><select data-act="npc-field" data-f="faces" style="flex:1 1 140px">${[['', '모름 (반전 안 함)'], ['left', '왼쪽을 봐요'], ['right', '오른쪽을 봐요']].map(([v, l]) => `<option value="${v}" ${(sel.faces || '') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
-          <p class="vn-hint">외형 태그는 주인공과 똑같이 만들어요: 장면 생성기·표정 추출기와 같은 프롬프트로 설명·로어북·채팅 기록에서 한 번 뽑아 저장하고, 계속 같은 태그를 써요(직접 고치면 고정). 고르거나 올린 이미지는 "AI로 만들기"에서 얼굴·머리·눈을 알려 주는 참조로만 함께 보내고, 옷·소품은 외형 태그를 따라요. 이미지의 배경이나 우산 같은 건 가져오지 않아요.</p>
-          <textarea rows="2" data-act="npc-field" data-f="desc" placeholder="설명 (외형 태그를 뽑을 때 쓰는 글이에요. 옷·소품은 여기와 로어북·채팅 기준이에요)">${esc(sel.desc || '')}</textarea>
-          <textarea rows="2" data-act="npc-field" data-f="look" placeholder="외형 태그 (영어). 비워 두면 \"AI로 만들기\"나 아래 버튼을 누를 때 설명·로어북·채팅 기록에서 뽑아 저장해요">${esc(sel.look || '')}</textarea>
-          <div class="vn-row tight"><button class="vn-btn sm" data-act="npc-look" title="주인공과 같은 방식: 설명·로어북·채팅 기록에서 뽑아요(카드 PNG 전송이 켜져 있으면 이미지로 얼굴·머리·눈도 봐요)">외형 태그 뽑기 (모델 1회)</button>${eeNpcLook(sel) ? '<button class="vn-btn sm" data-act="npc-look-ee" title="표정 추출기에서 만든 같은 이름 캐릭터의 외형 태그를 가져와요">표정 추출기 외형 가져오기</button>' : ''}</div>
+          <p class="vn-hint">외형 태그(아래 칸)는 주인공과 같은 방식으로 한 번 뽑아 저장해요. NPC는 이미지(켜 둔 경우)와 카드·로어북·채팅 기록에서 몸의 생김새(나이, 체형, 피부, 머리, 눈, 귀·꼬리 같은 특징)만 뽑고, 옷·소품·장소는 뽑지 않아요. 옷이나 소품이 필요하면 외형 태그 칸에 직접 적으세요. 설명과 관계 요약은 외형 태그와 이미지에 영향을 주지 않아요. "AI로 만들기"는 기준 이미지를 얼굴·머리·눈 참조로만 함께 보내요.</p>
+          <textarea rows="2" data-act="npc-field" data-f="desc" placeholder="설명 (누구인지·역할·성격 메모예요. 외형 태그와 이미지에는 영향을 주지 않아요)">${esc(sel.desc || '')}</textarea>
+          <textarea rows="2" data-act="npc-field" data-f="look" placeholder="외형 태그 (영어, 몸의 생김새). 직접 적거나 아래 버튼으로 뽑아요. 옷·소품은 여기에 직접 적어 넣으면 돼요">${esc(sel.look || '')}</textarea>
+          <div class="vn-row tight"><button class="vn-btn sm" data-act="npc-look" title="주인공과 같은 방식으로, 이미지(켜 둔 경우)와 카드·로어북·채팅 기록에서 몸의 생김새만 뽑아요. 옷·소품·장소는 뽑지 않아요">외형 태그 뽑기 (모델 1회)</button>${eeNpcLook(sel) ? '<button class="vn-btn sm" data-act="npc-look-ee" title="표정 추출기에서 만든 같은 이름 캐릭터의 외형 태그를 가져와요">표정 추출기 외형 가져오기</button>' : ''}</div>
           <textarea rows="2" data-act="npc-field" data-f="summary" placeholder="관계 요약 (${esc(ctx().name1 || '나')}와 ${esc(cast[0]?.name || '캐릭터')} 사이에서의 위치)">${esc(sel.summary || '')}</textarea>
           <h4>알아낸 정보</h4>
           <div class="vn-facts">${[...NPC_STD(), ...extra].map(fact).join('')}</div>
@@ -2462,7 +2469,7 @@ IMPORTANT: absolutely no text, letters, numbers, labels, signs with writing, leg
     const log = msgs.slice(-60).map((m) => `${m.name}: ${parseBlock(m.mes).text.replace(/\s+/g, ' ').slice(0, 350)}`).join('\n').slice(-15000);
     const cast = castList().map((x) => x.name).join(', ') || ch?.name || '';
     const prompt = `Do NOT roleplay. Read the roleplay log and extract the NAMED non-main characters (NPCs) who appear or are talked about. Reply with ONLY JSON:
-{"npcs":[{"name":"exact name","role":"short role or relationship","desc":"one short line on appearance and personality","summary":"1-2 ${DLN()} sentences about this person's relationship to ${c.name1} and ${cast}","facts":{"<short ${DLN()} label such as ${STD_FACTS.join(', ')}>":"<value>"}}]}
+{"npcs":[{"name":"exact name","role":"short role or relationship","desc":"one short ${DLN()} line on who this person is (role, position, workplace, personality). Do NOT describe looks, clothing or accessories","summary":"ONLY the relationship between this person and ${c.name1} or ${cast}, in 1-2 ${DLN()} sentences, if the story states one; otherwise an empty string. Never put the person's role, job or workplace here (that belongs in desc)","facts":{"<short ${DLN()} label such as ${STD_FACTS.join(', ')}>":"<value>"}}]}
 Rules: at most 10 npcs. Never include ${c.name1} or ${cast}. "facts" only holds things the log actually established (omit unknown items, values under 60 characters). Keep the exact names of already known NPCs: ${meta.npcs.map((n) => n.name).join(', ') || 'none'}. Write texts in ${DLN()}.
 [Main character card: ${cast}]
 ${String(ch?.description || '').slice(0, 1500)}
@@ -2501,7 +2508,7 @@ ${log}`;
     return out.sort((a, b) => (b.constant ? 1 : 0) - (a.constant ? 1 : 0));
   }
   /* 카드·로어북 분석: 로어북이 길어도 빠짐없이 읽도록 여러 번에 나눠 보낸다. 외형 태그는 채우지 않고 설명(메모)만 채운다 */
-  async function analyzeNpcsFromSources(ch) {
+  async function analyzeNpcsFromSources(ch, overwrite = false) {
     const meta = M(), c = ctx(), cast = castList().map((x) => x.name).join(', ') || ch?.name || '';
     const entries = await loreEntriesAll(ch);
     const cardText = castList().map((x) => `[Card: ${x.name}]\n${String(x.description || '').slice(0, 2500)}\n${String(x.personality || '').slice(0, 600)}\n${String(x.scenario || '').slice(0, 1200)}`).join('\n\n') || String(ch?.description || '').slice(0, 2500);
@@ -2520,7 +2527,7 @@ ${log}`;
       const known = meta.npcs.map((n) => n.name).join(', ').slice(0, 2500) || 'none';
       const prompt = `Do NOT roleplay. Read the material below (part ${bi + 1} of ${batches.length}) and extract the NAMED individual people (NPCs) that exist in this story world, other than the main character(s) and the user.
 Entries marked [ALWAYS ON] are always-active lorebook entries and often describe important NPCs. List every qualifying person in THIS part. Reply with ONLY JSON:
-{"npcs":[{"name":"exact name as written","aliases":["short names or nicknames used in the text"],"role":"short role or relationship","desc":"one short ${DLN()} line copying what the text itself says about this person (role, looks, personality); do not invent anything","summary":"1-2 ${DLN()} sentences about this person's relationship to ${c.name1} and ${cast}","facts":{"<short ${DLN()} label such as ${STD_FACTS.join(', ')}>":"<value>"}}]}
+{"npcs":[{"name":"exact name as written","aliases":["short names or nicknames used in the text"],"role":"short role or relationship","desc":"one short ${DLN()} line copying what the text says about who this person is (role, position, workplace, personality). Do NOT describe looks, clothing or accessories here; do not invent anything","summary":"ONLY the relationship between this person and ${c.name1} or ${cast}, in 1-2 ${DLN()} sentences, if the text states one; otherwise an empty string. Never put the person's role, job or workplace here (that belongs in desc)","facts":{"<short ${DLN()} label such as ${STD_FACTS.join(', ')}>":"<value>"}}]}
 Rules: Only individual people or beings who can talk. Never include places, items, factions, organizations, rules or world settings. Never include ${c.name1} or ${cast}. "facts" only holds things the text states (omit unknown items, values under 60 characters). Already known NPCs (use these exact names; list them again only if this part adds new facts): ${known}. Write texts in ${DLN()}.
 ${bi === 0 ? cardText : ''}
 
@@ -2533,8 +2540,9 @@ ${batches[bi] || '(none)'}`;
         const name = String(it?.name || '').trim().slice(0, 24); if (!name || sameName(name, c.name1) || castList().some((x) => sameName(x.name, name))) continue;
         let n = meta.npcs.find((x) => sameName(x.name, name));
         if (!n) { n = { name, role: '', desc: '' }; meta.npcs.push(n); added++; } else updated++;
-        n.role = n.role || String(it.role || '').slice(0, 24); n.desc = n.desc || String(it.desc || '').slice(0, 160);
-        if (it.summary && !n.summary) n.summary = String(it.summary).slice(0, 300);
+        n.role = n.role || String(it.role || '').slice(0, 24);
+        if (overwrite) { if (it.desc) n.desc = String(it.desc).slice(0, 160); n.summary = it.summary ? String(it.summary).slice(0, 300) : ''; }   // 새 규칙으로 다시 채우기
+        else { n.desc = n.desc || String(it.desc || '').slice(0, 160); if (it.summary && !n.summary) n.summary = String(it.summary).slice(0, 300); }
         const al = (Array.isArray(it.aliases) ? it.aliases : []).map((x) => String(x).trim().slice(0, 20)).filter((x) => x.length >= 2 && !sameName(x, name));
         if (al.length) n.aliases = [...new Set([...(n.aliases || []), ...al])].slice(0, 5);
         n.facts ||= {}; for (const [k, v] of Object.entries(it.facts || {})) if (k && v && !n.facts[String(k).slice(0, 14)]) n.facts[String(k).slice(0, 14)] = String(v).slice(0, 90);
@@ -2556,7 +2564,7 @@ ${String(ch.personality || '').slice(0, 500)}
 [Roleplay log between ${ch.name} and ${c.name1}]
 ${log}
 Return:
-{"aff":<integer -100..100: how close ${ch.name} is to ${c.name1} NOW, judged from the story and from ${ch.name}'s own personality. 0 = strangers, 20 = friendly acquaintances, 40 = close friends or a mild crush, 60 = clearly in love, 80 = lovers, 95 = deeply committed. Negative = hostile>,"summary":"2 short ${DLN()} sentences describing the relationship so far","facts":{"<short ${DLN()} label such as ${STD_FACTS.join(', ')}>":"<value>"},"annivs":[{"name":"<important date in the story>","md":"MM-DD"}],"npcs":[{"name":"","role":"","desc":"one short line"}]}
+{"aff":<integer -100..100: how close ${ch.name} is to ${c.name1} NOW, judged from the story and from ${ch.name}'s own personality. 0 = strangers, 20 = friendly acquaintances, 40 = close friends or a mild crush, 60 = clearly in love, 80 = lovers, 95 = deeply committed. Negative = hostile>,"summary":"2 short ${DLN()} sentences describing the relationship so far","facts":{"<short ${DLN()} label such as ${STD_FACTS.join(', ')}>":"<value>"},"annivs":[{"name":"<important date in the story>","md":"MM-DD"}],"npcs":[{"name":"","role":"","desc":"one short line on who this person is (no looks)"}]}
 Rules: "npcs" lists named people (not ${ch.name}, not ${c.name1}) who actually appear or are mentioned with a role in the log (at most 8). "facts" only has things that ${c.name1} has actually learned in the log (not card-only secrets). Omit unknown items. Keep each value under 60 characters. "annivs" may be empty.`;
     const d = parseJSON(await llm(prompt, 2500, '기존 채팅 분석'));
     if (!d) throw new Error('분석 결과를 읽지 못했어요');
@@ -2657,7 +2665,7 @@ ${an.length ? `[Today is special] ${an.join(', ')}` : ''}
 ${ms ? `[Milestone] Closeness just reached "${ms[1]}". The highlight slot must be a special, memorable heart event (kind "meet").` : ''}
 [Random inspiration for variety, use at least one] ${[...enc, ...ins].join(' / ')} (novelty seed ${Math.random().toString(36).slice(2, 7)})
 Return ONLY JSON:
-{"title":"short title of the day","weather":"Sunny/Cloudy/Rain/Snow etc. in ${DLN()}","arc":"one sentence: the story thread or unresolved question to carry into tomorrow","npcs":[{"name":"","role":"","desc":"one short line"}],"slots":[{"time":"HH:MM","loc":"place name","kind":"meet|encounter|npc|solo|charsolo","npc":"NPC name when kind is npc","outfit":"what ${ch.name} wears (fit time and place)","emo":"expression label","beat":"progress|conflict|reveal|surprise|comic|tender|rest","special":false,"premise":"one-line situation","solo":["2-4 lines, only when kind is solo or charsolo"]}]}
+{"title":"short title of the day","weather":"Sunny/Cloudy/Rain/Snow etc. in ${DLN()}","arc":"one sentence: the story thread or unresolved question to carry into tomorrow","npcs":[{"name":"","role":"","desc":"one short line on who this person is (no looks)"}],"slots":[{"time":"HH:MM","loc":"place name","kind":"meet|encounter|npc|solo|charsolo","npc":"NPC name when kind is npc","outfit":"what ${ch.name} wears (fit time and place)","emo":"expression label","beat":"progress|conflict|reveal|surprise|comic|tender|rest","special":false,"premise":"one-line situation","solo":["2-4 lines, only when kind is solo or charsolo"]}]}
 "slots" must have exactly 5 entries in this order: ${SLOTS.join(', ')} (times near ${SLOT_TIMES.join(', ')}).
 Slot kinds: "meet" = ${user} and ${ch.name} together; "encounter" = ${ch.name} shows up unexpectedly (or they bump into each other); "npc" = ${user} is alone with an NPC and ${ch.name} is absent (friend, rival, family, shopkeeper, teacher, stranger; reuse known NPCs or add a new one in "npcs"); "solo" = ${user} alone, a quiet moment or small incident narrated in "solo"; "charsolo" = ${ch.name} alone without ${user}, a private moment written in "solo" (what they do, think or say to themselves), which reveals something about them.
 Rules for variety and story:
@@ -2861,8 +2869,7 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
   /* NPC의 '카드 설명'에 해당하는 글: 역할·설명·카드 언급·로어북·채팅 언급 */
   async function npcMaterial(n, ch) {
     const src = await npcSources(n, ch).catch(() => ({ card: [], lore: '', chat: [] })), parts = [];
-    if (n.role) parts.push(`[Role] ${n.role}`); if (n.desc) parts.push(`[Notes] ${n.desc}`);
-    if (src.card.length) parts.push(`[Character card mentions]\n- ${src.card.join('\n- ')}`);
+    if (src.card.length) parts.push(`[Character card mentions]\n- ${src.card.join('\n- ')}`);   // 설명·역할 칸은 외형에 영향을 주지 않는다
     if (src.lore) parts.push(`[Lorebook]\n${src.lore}`);
     if (src.chat.length) parts.push(`[Chat mentions]\n- ${src.chat.join('\n- ')}`);
     return parts.join('\n\n');
@@ -2870,8 +2877,8 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
   /* 외형 태그 뽑기(버튼): 주인공의 extractLook과 같은 함수(lookFromMaterial)를 쓴다 */
   async function npcLookTags(n, ch) {
     const text = await npcMaterial(n, ch), imageUrl = npcBaseUrl(n) || n.img || '';
-    const out = await lookFromMaterial({ name: n.name, text, imageUrl, only: `\nThe material may mention several people. Describe ONLY the person named "${n.name}".`, label: `NPC 외형 태그 (${n.name})` });
-    if (out) { n.look = out; n.lookSrc = 'auto'; n.lookV = 2; saveMeta(); return { text: out, source: S().lookVision && imageUrl ? '이미지(얼굴·머리·눈) + 설명 글(옷·소품)' : '설명·로어북·채팅 기록' }; }
+    const out = await lookFromMaterial({ name: n.name, text, imageUrl, only: `\nThe material may mention several people. Describe ONLY the person named "${n.name}".`, label: `NPC 외형 태그 (${n.name})`, bodyOnly: true });
+    if (out) { n.look = out; n.lookSrc = 'auto'; n.lookV = 2; saveMeta(); return { text: out, source: S().lookVision && imageUrl ? '이미지 + 카드·로어북·채팅 (몸의 생김새만)' : '카드·로어북·채팅 (몸의 생김새만)' }; }
     return { text: '', source: '', reason: (!text.trim() && !imageUrl) ? 'no-material' : 'empty' };
   }
   /* 주인공의 ensureLook과 같은 순서: 직접 고친 태그 → 연동 태그(장면 생성기·표정 추출기) → 저장된 태그 → 뽑아서 저장 */
@@ -2881,7 +2888,7 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
     const linked = ssLookTag({ name: n.name }) || eeNpcLook(n); if (linked) return linked.slice(0, 600);
     if (n.look?.trim()) return n.look.trim();
     try { const r = await npcLookTags(n, ch); if (r.text) return r.text; } catch (e) { console.warn('[VN] NPC 외형 추출 실패', e); }
-    return (await npcMaterial(n, ch)).replace(/\s+/g, ' ').slice(0, 300);   // 저장하지 않는 임시 대체
+    return '';   // 자료가 없으면 비워 둔다(생성은 역할에 맞게 AI가 정한다)
   }
 
   /* 동물 여부: 이미지에서 뽑은 외형 태그의 맨 앞 태그로만 판단한다 */
@@ -2897,12 +2904,12 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
     const bgUrl = bgFor(M().loc || '')?.url;
     if (bgUrl) { const r = await refInline(bgUrl, 768); if (r) { refs.push(r); notes.push(`Reference image ${refs.length} is the current background: match its color grading and light, but do NOT draw this scene.`); } }
     const worldLook = String(ssWorld()?.look || '').slice(0, 200);
-    const appearance = look ? ` (${look})` : (n.desc ? `. ${n.desc}` : `. No appearance is specified, so invent a distinctive, fitting look for this role${worldLook ? ` in this world: ${worldLook}` : ''}`);
-    st.lastNpcSrc = `${hasPhoto ? '기준 이미지(얼굴·머리·눈) + ' : ''}${look ? '외형 태그' : (n.desc ? '설명' : '자료 없음 (AI가 역할에 맞게 설계)')}`;
+    const appearance = look ? ` (${look})` : `. No appearance is specified, so invent a distinctive, fitting look for this role${worldLook ? ` in this world: ${worldLook}` : ''}`;
+    st.lastNpcSrc = `${hasPhoto ? '기준 이미지(얼굴·머리·눈) + ' : ''}${look ? '외형 태그' : '자료 없음 (AI가 역할에 맞게 설계)'}`;
     const subject = animal ? `an animal named "${n.name}": a real animal, NOT a human, NOT anthropomorphic` : `"${n.name}"`;
     const shot = animal ? 'full-body view' : 'waist-up portrait';
     const pose = animal ? "natural animal pose, head turned slightly toward the viewer's LEFT" : "natural, relaxed standing pose, three-quarter view with the body and face turned slightly toward the viewer's LEFT";
-    const prompt = `${notes.join(' ')}\nGenerate one image: a visual novel character sprite, ${shot} of ${subject}${n.role ? `, ${n.role}` : ''}${appearance}. ${pose}. Rendering style: ${styleMain()}. Match EXACTLY the rendering style, level of realism, lighting and color grading described here (if photorealistic, make this photorealistic too, NOT anime or illustration). Background: plain flat solid pure white, no floor, no shadow, no gradient, no props behind. Single subject, no text, no UI, no watermark.`;
+    const prompt = `${notes.join(' ')}\nGenerate one image: a visual novel character sprite, ${shot} of ${subject}${n.role ? `, ${n.role}` : ''}${appearance}. Outfit: only what the tags state; otherwise a simple, plain outfit that fits the role. No props. ${pose}. Rendering style: ${styleMain()}. Match EXACTLY the rendering style, level of realism, lighting and color grading described here (if photorealistic, make this photorealistic too, NOT anime or illustration). Background: plain flat solid pure white, no floor, no shadow, no gradient, no props behind. Single subject, no text, no UI, no watermark.`;
     let url = await geminiGenerate(prompt, refs, animal ? '1:1' : '3:4', 'vngen_', `NPC ${n.name}`);
     if (s.cutout) { try { const c = await cutoutImage(url); if (c.url) { const orig = url; url = c.url; dropImage(orig); } } catch { /* 원본 유지 */ } }
     n.faces = 'left';   // 위 지시대로 왼쪽을 보게 만들었으니 기록해 둔다 (NPC 탭에서 바꿀 수 있어요)
@@ -3014,10 +3021,10 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
       case 'sub-del': { const card = ch._parent || ch; if (!confirm(`'${el.dataset.name}' 인물을 목록에서 뺄까요? (만든 이미지는 서버에 남아요)`)) return; cdata(card).subs = subsOf(card).filter((x) => x !== el.dataset.name); saveSettings(); st.selChar = chKey(card); return renderModal(); }
       case 'npc-look': {
         const n = npcByName(st.npcSel); if (!n) return; el.disabled = true; ui.status('NPC 외형 근거를 찾는 중…');
-        try { const r = await npcLookTags(n, ch, true); toastr[r.text ? 'success' : 'warning'](r.text ? `외형 태그를 만들었어요 (근거: ${r.source})` : ({ 'no-material': '이 NPC에 대한 설명·로어북·채팅 자료가 없어요. 설명을 적거나 이미지를 정해 주세요.', 'no-image': '뽑을 자료가 없어요. 설명을 적어 주세요.', 'no-key': '이미지를 보려면 이미지 API 키가 필요해요.' }[r.reason] || '모델이 태그를 주지 않았어요. 다시 시도해 주세요.')); } catch (e) { toastr.error('실패: ' + (e.message || e)); }
+        try { const r = await npcLookTags(n, ch, true); toastr[r.text ? 'success' : 'warning'](r.text ? `외형 태그를 만들었어요 (근거: ${r.source})` : ({ 'no-material': '카드·로어북·채팅 기록에 이 NPC에 대한 글이 없어요. 이미지를 정하거나 외형 태그를 직접 적어 주세요.', 'no-image': '뽑을 자료가 없어요. 외형 태그를 직접 적어 주세요.', 'no-key': '이미지를 보려면 이미지 API 키가 필요해요.' }[r.reason] || '모델이 태그를 주지 않았어요. 다시 시도해 주세요.')); } catch (e) { toastr.error('실패: ' + (e.message || e)); }
         ui.status(''); return renderModal();
       }
-      case 'npc-analyze-src': { el.disabled = true; ui.status('카드·로어북에서 NPC를 찾는 중…'); try { const r = await analyzeNpcsFromSources(ch); toastr.success(`NPC ${r.added}명을 추가하고 ${r.updated}명을 갱신했어요 (로어북 ${r.scanned}항목 읽음, 파란 점 ${r.constant}개${r.batches > 1 ? `, ${r.batches}번에 나눠 분석${r.failed ? ` · ${r.failed}번 실패` : ''}` : ''})`); } catch (e) { toastr.error('분석 실패: ' + (e.message || e)); } ui.status(''); return renderModal(); }
+      case 'npc-analyze-src': { el.disabled = true; ui.status('카드·로어북에서 NPC를 찾는 중…'); try { const overwrite = M().npcs.some((n) => n.desc || n.summary) && confirm('이미 있는 NPC의 설명·관계 요약도 새 규칙으로 다시 채울까요?\n(설명 = 역할·성격, 관계 요약 = 인물과의 관계만)\n\n확인: 덮어쓰기 (직접 고친 내용은 사라져요)\n취소: 빈 칸만 채우기'); const r = await analyzeNpcsFromSources(ch, overwrite); toastr.success(`NPC ${r.added}명을 추가하고 ${r.updated}명을 갱신했어요 (로어북 ${r.scanned}항목 읽음, 파란 점 ${r.constant}개${r.batches > 1 ? `, ${r.batches}번에 나눠 분석${r.failed ? ` · ${r.failed}번 실패` : ''}` : ''})`); } catch (e) { toastr.error('분석 실패: ' + (e.message || e)); } ui.status(''); return renderModal(); }
       case 'npc-analyze': { el.disabled = true; ui.status('NPC를 분석하는 중…'); try { const n = await analyzeNpcs(ch); toastr.success(`NPC ${n.added}명을 추가하고 ${n.updated}명을 갱신했어요`); } catch (e) { toastr.error('분석 실패: ' + (e.message || e)); } ui.status(''); return renderModal(); }
       case 'npcfact-add': { const n = npcByName(st.npcSel); if (!n) return; const l = $q('#vn-nfl', ui.root).value.trim().slice(0, 14), v = $q('#vn-nfv', ui.root).value.trim().slice(0, 90); if (!l || !v) return; (n.facts ||= {})[l] = v; saveMeta(); return renderModal(); }
       case 'npcfact-del': { const n = npcByName(st.npcSel); if (n?.facts) { delete n.facts[el.dataset.l]; saveMeta(); } return renderModal(); }
