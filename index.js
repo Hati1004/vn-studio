@@ -8,7 +8,8 @@
   const MODULE = 'vnstudio';
   const KEY = 'vnstudio_inject';
   const ctx = () => SillyTavern.getContext();
-  const toastr = new Proxy({}, { get: (_, k) => (m, ...a) => window.toastr[k](trMsg(m), ...a) });   // 영어 모드면 알림도 번역
+  const CANCEL_MSG = '사용자가 중지했어요';
+  const toastr = new Proxy({}, { get: (_, k) => (m, ...a) => window.toastr[k === 'error' && String(m).includes(CANCEL_MSG) ? 'info' : k](trMsg(m), ...a) });   // 영어 모드면 알림도 번역
   const confirm = (m) => window.confirm(trMsg(m)), alert = (m) => window.alert(trMsg(m));
   const L2 = (ko, en) => (S().lang === 'en' ? en : ko);
 
@@ -71,7 +72,7 @@
   const defaults = {
     outLang: 'ui', translateInput: false, keepLen: true, keepLenText: '',
     choiceCount: 4, choiceLen: 70, choiceP1: '', choiceP2: '', choiceP3: '', choiceP4: '', choiceExtra: '',
-    useSSLook: true, lookModel: '', lookModelOk: '', lookVision: true, useEELook: true, showUsage: true, showMiniMap: true, stylePreset: 'ss', stylePresets: [], negative: '',
+    useSSLook: true, lookModel: '', lookModelOk: '', lookVision: true, useEELook: true, showUsage: true, showMiniMap: true, mmWidth: 190, stylePreset: 'ss', stylePresets: [], negative: '',
     analyzePlaces: false, bgBlank: false, bgBlankColor: '#ffffff', bgBlankAuto: true, textH: 0, lpWidth: 0, fabPos: null, htmlPos: null, fabShow: true, theme: 'sakura', spriteScale: 100, spriteY: 0, evText: true, followCount: 3, llmTimeout: 150, deleteFiles: true, hideInChat: false, htmlAuto: false, lang: 'ko', devMode: false, hideBlocks: true, hideYaml: true, hideRegex: '', cutout: true, cutTol: 34, emosDefault: ['neutral', 'joy', 'sadness', 'anger', 'surprise', 'embarrassment'], enabled: true, fab: true, autoOpen: false, inject: true, choicesMode: 'both', eventEvery: 4,
     useST: true, classify: true, useAvatars: true, autoSprite: true, npcAutoImg: false, cutOrig: {}, choiceFs: 90, choiceFsMin: 78, minTextH: 150, npcGap: 26, npcScale: 100, npcY: 0, npcFirst: 'R', npcFace: true, spriteCap: 6, useSS: true, autoAnalyze: true, hideTags: '',
     autoBg: true, autoEventImg: true, autoEventVid: false, videoConfirm: true,
@@ -79,6 +80,8 @@
     cgStyle: 'visual novel event CG, anime illustration, cinematic composition, emotional lighting, high detail',
     typeSpeed: 16, textSize: 100, boxOpacity: 82, imgGapSec: 6, fadeMs: 700, eventSrc: 'ss', logSide: 'right', usage: { text: 0, image: 0, video: 0, r429: 0 }, llmProfile: '',
     imgProvider: 'vertex', vertexProject: '', vertexLocation: 'global', geminiKey: '', geminiModel: 'gemini-3.1-flash-image',
+    ssImported: false, nanoKey: '', nanoModel: 'hidream', nanoBase: 'https://nano-gpt.com/api/v1', nanoRefs: true,
+    comfyUrl: 'http://127.0.0.1:8188', comfyModel: '', comfyWorkflow: '', comfyNeg: 'lowres, bad anatomy, bad hands, text, watermark, signature, blurry', comfyBase: 1024, comfySteps: 25, comfyCfg: 6.5, comfySampler: 'dpmpp_2m', comfyScheduler: 'karras',
     videoProvider: 'auto', videoKey: '', videoProject: '', videoLocation: 'us-central1', videoToken: '',
     videoModel: 'veo-3.1-fast-generate-preview', videoSeconds: '4', videoRes: '720p', videoAudio: false,
     videoPrompt: 'Bring this visual novel event scene to life with subtle, natural cinematic motion: slow gentle camera push-in, soft breathing, hair and clothing moving slightly, ambient atmosphere. Keep the composition, characters, outfits and art style exactly as in the image. No text, no subtitles, no new characters.',
@@ -429,22 +432,41 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
   const profileList = () => { const cm = ctx().extensionSettings?.connectionManager; return Array.isArray(cm?.profiles) ? cm.profiles : []; };
   /* ---------- 진행 상태 팝업: AI 분석·생성이 지금 돌고 있는지 보여 준다 ---------- */
   const tasks = new Map(), taskDone = []; let taskSeq = 0, taskTick = null;
+  const cancelErr = () => Object.assign(new Error(CANCEL_MSG), { cancelled: true });
+  const taskIsCancelled = (id) => !!id && !tasks.has(id);
   function taskRender() {
     let el = document.getElementById('vn-tasks');
     if (!tasks.size && !taskDone.length) { el?.remove(); return; }
-    if (!el) { el = document.createElement('div'); el.id = 'vn-tasks'; el.setAttribute('role', 'status'); el.setAttribute('aria-live', 'polite'); document.body.appendChild(el); }
+    if (!el) {
+      el = document.createElement('div'); el.id = 'vn-tasks'; el.setAttribute('role', 'status'); el.setAttribute('aria-live', 'polite'); document.body.appendChild(el);
+      el.addEventListener('pointerdown', (e) => {   // 다시 그려지는 중에도 눌리도록 pointerdown으로 받는다
+        const b = e.target.closest?.('[data-tk]'); if (!b) return;
+        e.preventDefault(); e.stopPropagation();
+        if (b.dataset.tk === 'all') taskCancelAll(); else taskCancel(+b.dataset.tk);
+      });
+    }
     const now = Date.now(), sec = (x) => Math.max(0, Math.round((now - x) / 1000));
-    el.innerHTML = [...tasks.values()].map((x) => `<div class="vn-task run"><i class="vn-spin"></i><span>${esc(x.label)}</span><small>${x.phase ? esc(x.phase) + ' · ' : ''}${sec(x.t0)}초</small></div>`).join('')
-      + taskDone.map((d) => `<div class="vn-task ${d.ok ? 'ok' : 'bad'}"><b>${d.ok ? '✔' : '✖'}</b><span>${esc(d.label)}</span><small>${d.ok ? '완료' : '실패'}</small></div>`).join('');
+    el.innerHTML = [...tasks.entries()].map(([id, x]) => `<div class="vn-task run"><i class="vn-spin"></i><span>${esc(x.label)}</span><small>${x.phase ? esc(x.phase) + ' · ' : ''}${sec(x.t0)}초</small><button type="button" class="vn-task-x" data-tk="${id}" title="이 작업 중지" aria-label="중지">■ 중지</button></div>`).join('')
+      + (tasks.size > 1 ? '<div class="vn-task-all"><button type="button" class="vn-task-x" data-tk="all">■ 모두 중지</button></div>' : '')
+      + taskDone.map((d) => `<div class="vn-task ${d.ok === 'stop' ? 'stop' : d.ok ? 'ok' : 'bad'}"><b>${d.ok === 'stop' ? '■' : d.ok ? '✔' : '✖'}</b><span>${esc(d.label)}</span><small>${d.ok === 'stop' ? '중지함' : d.ok ? '완료' : '실패'}</small></div>`).join('');
   }
-  function taskStart(label, phase = '') { const id = ++taskSeq; tasks.set(id, { label: String(label || 'AI 작업'), phase, t0: Date.now() }); taskRender(); if (!taskTick) taskTick = setInterval(taskRender, 1000); return id; }
+  function taskStart(label, phase = '') { const id = ++taskSeq; let kill; const cancelP = new Promise((_, no) => { kill = no; }); cancelP.catch(() => {}); tasks.set(id, { label: String(label || 'AI 작업'), phase, t0: Date.now(), kill, cancelP, ac: new AbortController() }); taskRender(); if (!taskTick) taskTick = setInterval(taskRender, 1000); return id; }
   function taskPhase(id, phase) { const x = tasks.get(id); if (x) { x.phase = phase; taskRender(); } }
   function taskEnd(id, ok = true) {
     const x = tasks.get(id); tasks.delete(id);
     if (x) { const d = { label: x.label, ok }; taskDone.push(d); setTimeout(() => { const i = taskDone.indexOf(d); if (i >= 0) taskDone.splice(i, 1); taskRender(); }, ok ? 2200 : 6000); }
     taskRender(); if (!tasks.size && taskTick) { clearInterval(taskTick); taskTick = null; }
   }
-  const withTask = async (label, fn, phase = '') => { const id = taskStart(label, phase); try { const r = await fn(id); taskEnd(id, true); return r; } catch (e) { taskEnd(id, false); throw e; } };
+  /* 중지: 화면에서 바로 치우고, 기다리던 쪽에는 '중지' 오류를 던진다. 이미 서버로 나간 요청은 그쪽에서 끝까지 갈 수 있다(결과는 버려진다). */
+  function taskCancel(id) {
+    const x = tasks.get(id); if (!x) return;
+    tasks.delete(id); try { x.ac.abort(); } catch { /* 무시 */ }
+    const d = { label: x.label, ok: 'stop' }; taskDone.push(d); setTimeout(() => { const i = taskDone.indexOf(d); if (i >= 0) taskDone.splice(i, 1); taskRender(); }, 2500);
+    x.kill(cancelErr()); taskRender(); if (!tasks.size && taskTick) { clearInterval(taskTick); taskTick = null; }
+  }
+  function taskCancelAll() { for (const id of [...tasks.keys()]) taskCancel(id); }
+  const raceTask = (id, p) => { const x = tasks.get(id); return x ? Promise.race([p, x.cancelP]) : p; };
+  const withTask = async (label, fn, phase = '') => { const id = taskStart(label, phase); try { const r = await raceTask(id, Promise.resolve(fn(id))); taskEnd(id, true); return r; } catch (e) { if (tasks.has(id)) taskEnd(id, false); throw e; } };
 
   async function llm(prompt, maxTok = 2048, label = '텍스트') { return withTask(label, () => llmRun(prompt, maxTok, label), 'AI 응답 기다리는 중'); }
   async function llmRun(prompt, maxTok = 2048, label = '텍스트') {
@@ -503,19 +525,21 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
   /* 이미지 요청은 한 번에 하나씩, 간격을 두고 보낸다. 429/503이면 기다렸다가 다시 시도한다. */
   let imgChain = Promise.resolve(), imgLast = 0, ctxTok = null;
   const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
-  function imgQueue(label, fn) {
+  function imgQueue(label, fn, tid = 0) {
     const run = async () => {
+      if (taskIsCancelled(tid)) throw cancelErr();
       const gap = Math.max(0, (+S().imgGapSec || 0) * 1000), waitMs = imgLast + gap - Date.now();
       if (waitMs > 0) await sleepMs(waitMs);
       const delays = S().fast429 ? [0.05, 0.1, 0.1] : [20, 45, 90];   // fast429는 테스트용 숨김 옵션
       for (let a = 0; a <= delays.length; a++) {
+        if (taskIsCancelled(tid)) throw cancelErr();
         try { ctxTok = null; const r = await fn(); imgLast = Date.now(); logUsage('image', label, 'ok', ctxTok); return r; }
         catch (e) {
           imgLast = Date.now();
           if ((e.status === 429 || e.status === 503) && a < delays.length) {
             logUsage('image', label, '429');
             const d = Math.max(e.retryAfter || 0, delays[a]);
-            for (let s = d; s > 0; s--) { ui.status?.(`요청이 몰려 ${s}초 뒤 다시 시도해요 (${label})`); await sleepMs(1000); }
+            for (let s = d; s > 0; s--) { if (taskIsCancelled(tid)) break; ui.status?.(`요청이 몰려 ${s}초 뒤 다시 시도해요 (${label})`); await sleepMs(1000); }
             ui.status?.(''); continue;
           }
           logUsage('image', label, 'fail', null, e.message || e); throw e;
@@ -524,12 +548,110 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
     };
     const p = imgChain.then(run, run); imgChain = p.catch(() => {}); return p;
   }
+  /* ---------- 이미지 방식: Gemini(기본) / NanoGPT / ComfyUI ---------- */
+  const imgReady = () => { const s = S(); return s.imgProvider === 'comfy' ? !!String(s.comfyUrl || '').trim() : s.imgProvider === 'nanogpt' ? !!String(s.nanoKey || '').trim() : !!String(s.geminiKey || '').trim(); };
+  const imgProvName = () => ({ comfy: 'ComfyUI', nanogpt: 'NanoGPT', vertex: 'Agent Platform', gemini: 'Gemini' }[S().imgProvider] || 'Gemini');
+  const sniffMime = (b64) => { const h = String(b64).slice(0, 12); return h.startsWith('/9j/') ? 'image/jpeg' : h.startsWith('UklGR') ? 'image/webp' : h.startsWith('R0lGOD') ? 'image/gif' : 'image/png'; };
+  const toDataUrl = (p) => `data:${p.inlineData.mimeType};base64,${p.inlineData.data}`;
+  async function refsAsDataUrls(refs, max = 4) {
+    const out = [];
+    for (const u of refs) {
+      if (out.length >= max) break;
+      try { out.push(toDataUrl(u && typeof u === 'object' ? u : await urlToInline(u))); } catch (e) { console.warn('[VN] 참조 이미지 로드 실패', e); }
+    }
+    return out;
+  }
+  const NANO_SIZE = { '1:1': '1024x1024', '16:9': '1344x768', '3:4': '768x1024' };
+  async function nanoGenerateRun(prompt, refs, aspect, prefix, label, tid) {
+    const s = S(), key = String(s.nanoKey || '').trim();
+    if (!key) throw new Error('설정에 NanoGPT API 키를 입력해 주세요 (확장 프로그램 → VN Studio)');
+    const base = String(s.nanoBase || 'https://nano-gpt.com/api/v1').trim().replace(/\/+$/, '');
+    const urls = s.nanoRefs !== false ? await refsAsDataUrls(refs) : [];
+    const signal = tasks.get(tid)?.ac.signal;
+    const call = async (withRefs, withSize) => {
+      const body = { model: String(s.nanoModel || '').trim() || 'hidream', prompt, n: 1, response_format: 'b64_json' };
+      if (withSize) body.size = NANO_SIZE[aspect] || '1024x1024';
+      if (withRefs && urls.length) { if (urls.length === 1) body.imageDataUrl = urls[0]; else body.imageDataUrls = urls; }
+      const r = await fetch(base + '/images/generations', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key }, body: JSON.stringify(body), signal });
+      const raw = await r.text(); let j = {}; try { j = JSON.parse(raw); } catch { /* 본문이 JSON이 아님 */ }
+      return { r, j, raw };
+    };
+    return imgQueue(label, async () => {
+      if (tid) taskPhase(tid, '이미지 만드는 중');
+      const plan = urls.length ? [[true, true], [true, false], [false, true], [false, false]] : [[false, true], [false, false]];
+      let res;
+      for (const [wr, ws] of plan) { res = await call(wr, ws); if (res.r.status !== 400) break; }   // 모델이 참조 이미지·크기를 못 받으면 빼고 다시
+      const { r, j, raw } = res;
+      if (!r.ok) {
+        const msg = (typeof j?.error === 'string' ? j.error : j?.error?.message) || j?.message || raw.slice(0, 200) || '요청 실패';
+        const e = new Error(`NanoGPT ${r.status}: ${msg}`); e.status = r.status;
+        const ra = Number(r.headers?.get?.('retry-after')); if (ra) e.retryAfter = Math.min(120, ra);
+        throw e;
+      }
+      const d = j?.data?.[0];
+      let b64 = d?.b64_json, mime = '';
+      if (!b64 && d?.url) {
+        const ir = await fetch(d.url, { signal }); if (!ir.ok) throw new Error('NanoGPT가 준 이미지 주소를 열지 못했어요 (' + ir.status + ')');
+        const blob = await ir.blob(); mime = blob.type; b64 = await blobToBase64(blob);
+      }
+      if (!b64) throw new Error('응답에 이미지가 없어요. 모델 이름을 확인해 주세요.');
+      b64 = String(b64).replace(/^data:[^,]*,/, '');
+      const saved = await saveImage(b64, mime || sniffMime(b64), prefix);
+      if (prefix === 'vngen_') portraitSet.add(saved);
+      return saved;
+    }, tid);
+  }
+  /* ComfyUI: SillyTavern 서버가 대신 ComfyUI에 요청해 줘요(브라우저 CORS 설정이 필요 없어요). 글로만 그리며 참조 이미지는 보내지 않아요. */
+  const COMFY_DEFAULT_WF = { 3: { class_type: 'KSampler', inputs: { seed: '%seed%', steps: '%steps%', cfg: '%cfg%', sampler_name: '%sampler%', scheduler: '%scheduler%', denoise: 1, model: ['4', 0], positive: ['6', 0], negative: ['7', 0], latent_image: ['5', 0] } },
+    4: { class_type: 'CheckpointLoaderSimple', inputs: { ckpt_name: '%model%' } }, 5: { class_type: 'EmptyLatentImage', inputs: { width: '%width%', height: '%height%', batch_size: 1 } },
+    6: { class_type: 'CLIPTextEncode', inputs: { text: '%prompt%', clip: ['4', 1] } }, 7: { class_type: 'CLIPTextEncode', inputs: { text: '%negative%', clip: ['4', 1] } },
+    8: { class_type: 'VAEDecode', inputs: { samples: ['3', 0], vae: ['4', 2] } }, 9: { class_type: 'SaveImage', inputs: { filename_prefix: 'vnstudio', images: ['8', 0] } } };
+  function comfyDims(aspect) {
+    const [a, b] = String(aspect || '1:1').split(':').map(Number), ar = (a || 1) / (b || 1), area = Math.pow(clamp(+S().comfyBase || 1024, 256, 2048), 2);
+    const r8 = (v) => Math.max(64, Math.round(v / 8) * 8);
+    return { w: r8(Math.sqrt(area * ar)), h: r8(Math.sqrt(area / ar)) };
+  }
+  function comfyFill(node, v) {   // 값 자리표시자(%seed% 등)를 채운다. 글에 섞인 자리표시자는 글로, 통째로 쓰인 숫자 자리표시자는 숫자로
+    if (typeof node === 'string') {
+      const num = { '%seed%': v.seed, '%width%': v.width, '%height%': v.height, '%steps%': v.steps, '%cfg%': v.cfg }[node.trim()];
+      if (num !== undefined) return num;
+      return node.split('%prompt%').join(v.prompt).split('%negative%').join(v.negative).split('%model%').join(v.model).split('%sampler%').join(v.sampler).split('%scheduler%').join(v.scheduler);
+    }
+    if (Array.isArray(node)) return node.map((x) => comfyFill(x, v));
+    if (node && typeof node === 'object') return Object.fromEntries(Object.entries(node).map(([k, x]) => [k, comfyFill(x, v)]));
+    return node;
+  }
+  async function comfyGenerateRun(prompt, refs, aspect, prefix, label, tid) {
+    const s = S(), url = String(s.comfyUrl || '').trim();
+    if (!url) throw new Error('설정에 ComfyUI 주소를 입력해 주세요 (예: http://127.0.0.1:8188)');
+    let wf; const txt = String(s.comfyWorkflow || '').trim();
+    try { wf = txt ? JSON.parse(txt) : structuredClone(COMFY_DEFAULT_WF); } catch { throw new Error('ComfyUI 워크플로 JSON이 올바르지 않아요. ComfyUI에서 \"API 형식으로 저장\"한 JSON을 붙여 넣어 주세요.'); }
+    if (!txt && !String(s.comfyModel || '').trim()) throw new Error('설정에 ComfyUI 체크포인트 파일 이름을 적어 주세요 (또는 내 워크플로를 붙여 넣어 주세요)');
+    const { w, h } = comfyDims(aspect), signal = tasks.get(tid)?.ac.signal;
+    const p2 = String(prompt).replace(/^\s*Generate one image\.\s*/i, '');
+    const filled = comfyFill(wf, { prompt: p2, negative: String(s.comfyNeg || ''), model: String(s.comfyModel || ''), sampler: String(s.comfySampler || 'euler'), scheduler: String(s.comfyScheduler || 'normal'), seed: Math.floor(Math.random() * 4294967295), width: w, height: h, steps: +s.comfySteps || 25, cfg: +s.comfyCfg || 6.5 });
+    return imgQueue(label, async () => {
+      if (tid) taskPhase(tid, 'ComfyUI가 그리는 중');
+      const r = await fetch('/api/sd/comfy/generate', { method: 'POST', headers: ctx().getRequestHeaders(), body: JSON.stringify({ url, prompt: JSON.stringify({ prompt: filled }) }), signal });
+      let txtRes = await r.text();
+      if (!r.ok) { const e = new Error(`ComfyUI ${r.status}: ${String(txtRes).slice(0, 400) || '요청 실패. ComfyUI가 켜져 있고 주소가 맞는지 확인해 주세요.'}`); e.status = r.status === 429 ? 429 : 0; throw e; }
+      let b64 = String(txtRes).trim();
+      if (b64.startsWith('{')) { try { const j = JSON.parse(b64); b64 = String(j.data || j.image || ''); } catch { /* 그대로 */ } }
+      b64 = b64.replace(/^"|"$/g, '').replace(/^data:[^,]*,/, '').replace(/\s+/g, '');
+      if (!b64) throw new Error('ComfyUI가 이미지를 주지 않았어요. 워크플로에 SaveImage(또는 PreviewImage) 노드가 있어야 해요.');
+      const saved = await saveImage(b64, sniffMime(b64), prefix);
+      if (prefix === 'vngen_') portraitSet.add(saved);
+      return saved;
+    }, tid);
+  }
   async function geminiGenerate(prompt, refs = [], aspect = '16:9', prefix = 'vn_', label = '이미지') {
     const id = taskStart(label, '순서 기다리는 중');
-    try { const r = await geminiGenerateRun(prompt, refs, aspect, prefix, label, id); taskEnd(id, true); return r; } catch (e) { taskEnd(id, false); throw e; }
+    try { const r = await raceTask(id, geminiGenerateRun(prompt, refs, aspect, prefix, label, id)); taskEnd(id, true); return r; } catch (e) { if (tasks.has(id)) taskEnd(id, false); throw e; }
   }
   async function geminiGenerateRun(prompt, refs = [], aspect = '16:9', prefix = 'vn_', label = '이미지', tid = 0) {
     const s = S();
+    if (s.imgProvider === 'nanogpt') return nanoGenerateRun(prompt, refs, aspect, prefix, label, tid);
+    if (s.imgProvider === 'comfy') return comfyGenerateRun(prompt, refs, aspect, prefix, label, tid);
     if (!s.geminiKey.trim()) throw new Error('설정에 이미지 API 키를 입력해 주세요 (확장 프로그램 → VN Studio)');
     const parts = [];
     for (const u of refs) {
@@ -541,7 +663,7 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
     const call = async (withCfg) => {
       const body = { contents: [{ role: 'user', parts }], generationConfig: { responseModalities: ['TEXT', 'IMAGE'] } };
       if (withCfg) body.generationConfig.imageConfig = { aspectRatio: aspect };
-      const r = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': s.geminiKey.trim() }, body: JSON.stringify(body) });
+      const r = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': s.geminiKey.trim() }, body: JSON.stringify(body), signal: tasks.get(tid)?.ac.signal });
       return { r, j: await r.json().catch(() => ({})) };
     };
     return imgQueue(label, async () => {
@@ -565,10 +687,26 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
       const saved = await saveImage(img.data, img.mimeType || img.mime_type || 'image/png', prefix);
       if (prefix === 'vngen_') portraitSet.add(saved);
       return saved;
-    });
+    }, tid);
   }
   async function testGemini() {
     const s = S();
+    if (s.imgProvider === 'nanogpt') {
+      if (!String(s.nanoKey || '').trim()) { toastr.warning('NanoGPT API 키를 먼저 입력해 주세요.'); return; }
+      try {
+        const base = String(s.nanoBase || 'https://nano-gpt.com/api/v1').trim().replace(/\/+$/, '');
+        const r = await fetch(base + '/image-models', { headers: { Authorization: 'Bearer ' + s.nanoKey.trim() } });
+        if (r.ok) toastr.success('NanoGPT 연결 성공 (모델 이름은 그릴 때 확인돼요)'); else toastr.error(`NanoGPT ${r.status}: ${(await r.text()).slice(0, 160)}`);
+      } catch (e) { toastr.error('요청 실패 (네트워크/CORS): ' + (e.message || e)); }
+      return;
+    }
+    if (s.imgProvider === 'comfy') {
+      try {
+        const r = await fetch('/api/sd/comfy/ping', { method: 'POST', headers: ctx().getRequestHeaders(), body: JSON.stringify({ url: String(s.comfyUrl || '').trim() }) });
+        if (r.ok) toastr.success('ComfyUI 연결 성공'); else toastr.error('ComfyUI에 연결하지 못했어요. 켜져 있는지, 주소가 맞는지 확인해 주세요.');
+      } catch (e) { toastr.error('요청 실패: ' + (e.message || e)); }
+      return;
+    }
     if (!s.geminiKey.trim()) { toastr.warning('API 키를 먼저 입력해 주세요.'); return; }
     try {
       const h = { 'Content-Type': 'application/json', 'x-goog-api-key': s.geminiKey.trim() };
@@ -608,6 +746,26 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
   }
 
   /* ---------- 장면 생성기(Scene Studio) 연동 ---------- */
+  /* ---------- 미니맵 확대/축소 ---------- */
+  const MM_Z = [1, 1.5, 2, 3, 4, 6];
+  function mmApply(center) {
+    const stg = $q('.vn-mm-stage', ui.root); if (!stg) return;
+    const c = (st.mm ||= { z: 1, tx: 0, ty: 0, scope: '' }), a = st.mmAnchor;
+    if (center && c.z > 1 && a) { c.tx = 50 - a.x * c.z; c.ty = 50 - a.y * c.z; }
+    if (c.z <= 1) { c.tx = 0; c.ty = 0; }
+    c.tx = clamp(c.tx, 100 - 100 * c.z, 0); c.ty = clamp(c.ty, 100 - 100 * c.z, 0);
+    stg.style.setProperty('--z', c.z); stg.style.transform = `translate(${c.tx}%, ${c.ty}%) scale(${c.z})`;
+    stg.classList.toggle('zoomed', c.z >= 2);
+    const o = $q('.vn-mm-z', ui.root); if (o) o.textContent = c.z === 1 ? '' : `×${c.z}`;
+  }
+  function mmZoom(dir, vx, vy) {   // vx, vy: 확대 중심(보이는 미니맵 안의 위치 %). 없으면 지금 장소(없으면 가운데)
+    const c = (st.mm ||= { z: 1, tx: 0, ty: 0, scope: '' }), i = MM_Z.reduce((b, v, k) => (Math.abs(v - c.z) < Math.abs(MM_Z[b] - c.z) ? k : b), 0), nz = MM_Z[clamp(i + dir, 0, MM_Z.length - 1)];
+    if (nz === c.z) return;
+    if (vx === undefined && st.mmAnchor) { c.z = nz; mmApply(true); return; }
+    vx ??= 50; vy ??= 50;
+    const px = (vx - c.tx) / c.z, py = (vy - c.ty) / c.z;
+    c.z = nz; c.tx = vx - px * nz; c.ty = vy - py * nz; mmApply();
+  }
   const ssSet = () => ctx().extensionSettings?.minimap || null;
   const ssWorld = () => ctx().chatMetadata?.minimap?.world || null;
   const ssPlaces = () => (S().useSS ? ssWorld()?.places || [] : []);
@@ -654,7 +812,7 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
   }
   let keyHinted = false;
   const hasImgKey = () => {
-    if (S().geminiKey.trim()) return true;
+    if (imgReady()) return true;
     if (!keyHinted) { keyHinted = true; toastr.info('이미지 API 키가 없어서 자동 생성은 건너뛰어요. 확장 프로그램 → VN Studio에서 키를 넣어 주세요.'); }
     return false;
   };
@@ -976,7 +1134,7 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
   const b64ToBlob = (b64, mime) => { const bin = atob(b64), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return new Blob([u], { type: mime }); };
   function veoCfg() {
     const s = S();
-    let vp = s.videoProvider === 'auto' ? s.imgProvider : s.videoProvider;
+    let vp = s.videoProvider === 'auto' ? (s.imgProvider === 'gemini' ? 'gemini' : 'vertex') : s.videoProvider;   // 영상은 Veo(구글)만. NanoGPT·ComfyUI를 이미지에 쓰면 영상은 Agent Platform 설정을 따른다
     return { vp, key: (s.videoKey || s.geminiKey).trim(), token: s.videoToken.trim() };
   }
   function veoUrl(action, model, vp) {
@@ -1274,7 +1432,7 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
       bar.style.width = Math.abs(v) / 2 + '%'; bar.style.left = v >= 0 ? '50%' : 50 - Math.abs(v) / 2 + '%';
       bar.className = v >= 0 ? 'up' : 'down';
     },
-    /* 왼쪽 위 관계창 아래 미니맵: 지금 장소가 속한 지도에 핀을 찍어 보여 주고, 누르면 지도 탭이 열린다 */
+    /* 왼쪽 위 관계창 아래 미니맵: 지금 장소가 속한 지도를 보여 준다. ＋/－ 버튼·휠·두 손가락으로 확대/축소, 확대하면 끌어서 이동, ⤢로 창 크기, 제목을 누르면 지도 탭이 열린다 */
     miniMap() {
       const el = ui.root && ui.q('#vn-minimap'); if (!el) return;
       const hide = () => { el.style.display = 'none'; el.innerHTML = ''; el.dataset.sig = ''; };
@@ -1289,11 +1447,20 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
         let anchor = null, q = cur, n = 0;
         while (q && n++ < 10) { if ((q.parent || 'world') === scope && hasXY(q)) { anchor = q; break; } q = q.parent ? placeById(q.parent) : null; }
         const title = scope === 'world' ? '세계' : (placeById(scope)?.name || '');
-        const sig = [map.url, map.ratio, anchor?.id, kids.map((p) => `${p.id}:${p.x}:${p.y}`).join(','), title, cur?.name].join('|');
+        const wd = clamp(+s.mmWidth || 190, 130, 340);
+        const sig = [map.url, map.ratio, anchor?.id, kids.map((p) => `${p.id}:${p.x}:${p.y}:${p.name}`).join(','), title, cur?.name, wd].join('|');
         el.style.display = '';
         if (el.dataset.sig === sig) return;
         el.dataset.sig = sig;
-        el.innerHTML = `<button class="vn-mm" data-act="minimap" title="지도 열기" aria-label="미니맵"><span class="vn-mm-stage" style="aspect-ratio:${map.ratio || 1}"><img src="${esc(map.url)}" alt="" draggable="false">${kids.map((p) => `<i class="vn-mm-dot ${anchor && p.id === anchor.id ? 'cur' : ''}" style="left:${p.x}%;top:${p.y}%"></i>`).join('')}</span><small>${esc(title)}${cur ? ' · ' + esc(cur.name) : ''}</small></button>`;
+        const c = (st.mm ||= { z: 1, tx: 0, ty: 0, scope: '' });
+        if (c.scope !== scope) Object.assign(c, { z: 1, tx: 0, ty: 0, scope });
+        st.mmAnchor = anchor ? { x: anchor.x, y: anchor.y } : null;
+        const dot = (p) => { const on = anchor && p.id === anchor.id; return `<i class="vn-mm-dot ${on ? 'cur' : ''}" style="left:${p.x}%;top:${p.y}%"><span><b>${esc(placeIcon(p))}</b><em>${esc(p.name)}</em></span></i>`; };
+        el.innerHTML = `<div class="vn-mm" style="width:${wd}px">
+          <div class="vn-mm-bar"><button type="button" class="vn-mm-title" data-act="minimap" title="지도 탭 열기" aria-label="지도 열기">🗺 ${esc(title)}${cur ? ' · ' + esc(cur.name) : ''}</button>
+            <span class="vn-mm-ctl"><button type="button" data-mm="in" title="확대" aria-label="확대">＋</button><button type="button" data-mm="out" title="축소" aria-label="축소">－</button><button type="button" data-mm="fit" title="처음 크기" aria-label="처음 크기">⟲</button><button type="button" data-mm="size" title="미니맵 창 크기 바꾸기" aria-label="창 크기">⤢</button></span></div>
+          <div class="vn-mm-view" style="aspect-ratio:${map.ratio || 1}"><div class="vn-mm-stage"><img src="${esc(map.url)}" alt="" draggable="false">${kids.map(dot).join('')}</div><output class="vn-mm-z"></output></div></div>`;
+        mmApply(true);
       } catch (e) { hide(); console.warn('[VN] 미니맵', e); }
     },
     usagePill() {
@@ -1339,7 +1506,7 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
      · 표정 단위 자동 생성은 '기본 의상'과, 세트를 직접 만들어 둔 의상에만 적용 */
   function lazyGen(ch, emo, outfit) {
     const s = S();
-    if (!s.autoSprite || !s.geminiKey.trim() || !ch) return;
+    if (!s.autoSprite || !imgReady() || !ch) return;
     const of = cdata(ch).outfits[outfit]; if (!of) return;
     if (exactSprite(ch, emo, outfit)) return;
     if (outfit === '기본' && stHas(ch, emo)) return;
@@ -1407,7 +1574,7 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
   const npcsIn = (text) => { const tx = String(text || '').toLowerCase(); return tx ? M().npcs.filter((n) => npcKeys(n).some((x) => tx.includes(x.toLowerCase()))) : []; };
   const npcGenBusy = new Set();
   async function lazyNpcImg(n) {
-    const s = S(); if (!s.npcAutoImg || !s.geminiKey.trim() || !n || n.img || n.noAuto || npcGenBusy.has(n.name) || npcGenBusy.size >= 1) return;
+    const s = S(); if (!s.npcAutoImg || !imgReady() || !n || n.img || n.noAuto || npcGenBusy.has(n.name) || npcGenBusy.size >= 1) return;
     npcGenBusy.add(n.name);
     try {
       n.img = await genNpcImage(n, activeChar()); n.imgAi = true; saveMeta();
@@ -2214,7 +2381,7 @@ IMPORTANT: absolutely no text, letters, numbers, labels, signs with writing, leg
     return `
       <p class="vn-hint">이벤트 씬이 안 뜰 때 여기서 이유를 확인하고 직접 실행해 볼 수 있어요.</p>
       <h4>이벤트 상태</h4>
-      <div class="vn-devgrid"><div><small>자동 생성</small><b>${S().autoEventImg ? '켜짐' : '꺼짐'}</b></div><div><small>이미지 키</small><b>${S().geminiKey.trim() ? '있음' : '없음'}</b></div><div><small>장면 생성기 이미지</small><b>${ssg.length}장</b></div><div><small>간격</small><b>${meta.lastEvent <= -90 ? '이벤트 없음' : `${sinceEvent()} / ${gap}`}</b></div><div><small>현재 장면 event</small><b>${turn?.event ? '있음' : '없음'}</b></div><div><small>장면 소스</small><b>${esc(S().eventSrc)}</b></div></div>
+      <div class="vn-devgrid"><div><small>자동 생성</small><b>${S().autoEventImg ? '켜짐' : '꺼짐'}</b></div><div><small>이미지 키</small><b>${imgReady() ? '있음' : '없음'}</b></div><div><small>장면 생성기 이미지</small><b>${ssg.length}장</b></div><div><small>간격</small><b>${meta.lastEvent <= -90 ? '이벤트 없음' : `${sinceEvent()} / ${gap}`}</b></div><div><small>현재 장면 event</small><b>${turn?.event ? '있음' : '없음'}</b></div><div><small>장면 소스</small><b>${esc(S().eventSrc)}</b></div></div>
       <div class="vn-row tight"><button class="vn-btn sm primary" data-act="dev-force">현재 장면으로 이벤트 강제 실행</button><button class="vn-btn sm" data-act="dev-sample">샘플 이벤트 화면 보기</button></div>
       <div class="vn-row tight"><select id="vn-devimg" style="flex:1 1 220px"><option value="">저장된 이미지로 이벤트 화면 미리보기…</option>${opts.map(([u, n]) => `<option value="${esc(u)}">${esc(n)}</option>`).join('')}</select><button class="vn-btn sm" data-act="dev-preview">미리보기</button></div>
       <h4>이벤트 판단 기록 (최근 순)</h4>
@@ -2249,12 +2416,18 @@ IMPORTANT: absolutely no text, letters, numbers, labels, signs with writing, leg
         <div class="vn-opt"><label class="vn-lbl">제외 요소 (이런 건 그리지 않기)</label><input type="text" data-vk="negative" placeholder="예: text, watermark, extra fingers"></div>
         <div class="vn-opt"><label class="vn-lbl">배경 화풍 (비우면 위 화풍 사용)</label><textarea rows="2" data-vk="style"></textarea></div>
         ${`<div class="vn-opt"><label class="vn-lbl">외형 추출 모델 (Gemini, 비워 두면 자동)</label><input type="text" data-vk="lookModel" placeholder="비워 두면 자동: gemini-3-flash-preview → … → 이미지 모델"></div><p class="vn-opt-h">이미지를 보고 외형 태그를 만들 때 쓰는 모델이에요. 모델이 없어지거나 이름이 바뀌어 404가 나면 다른 모델을 차례로 시도하고, 마지막엔 이미지 생성에 쓰는 모델로 대신해요. "외형 태그에 카드 PNG 이미지도 함께 보내기" 설정은 NPC 탭으로 옮겼어요.</p>`}`)}
-      ${sec('저장 공간', `${chk('deleteFiles', '이미지를 지울 때 서버 파일도 함께 지우기', '다른 곳에서 쓰지 않는 VN Studio 이미지(user/images/vnstudio)만 지워요. 이 서버가 삭제를 지원하지 않으면 파일은 그대로 남아요.')}<div class="vn-row tight"><button class="vn-btn sm" data-act="clean-scan">쓰지 않는 표정·NPC 이미지 찾아서 정리</button><button class="vn-btn sm" data-act="img-manage">저장된 이미지 보기·삭제</button></div><p class="vn-opt-h">이미지는 SillyTavern 폴더의 data/(사용자 폴더, 보통 default-user)/user/images/vnstudio 에 저장돼요.</p>`)}
+      ${sec('저장 공간', `${chk('deleteFiles', '이미지를 지울 때 서버 파일도 함께 지우기', '다른 곳에서 쓰지 않는 VN Studio 이미지(user/images/vnstudio)만 지워요. 이 서버가 삭제를 지원하지 않으면 파일은 그대로 남아요.')}<div class="vn-row tight"><button class="vn-btn sm" data-act="clean-scan">쓰지 않는 표정·NPC 이미지 찾아서 정리</button><button class="vn-btn sm" data-act="img-manage">저장된 이미지 보기·삭제</button><button class="vn-btn sm danger" data-act="wipe-all">VN Studio 데이터 모두 삭제</button></div><p class="vn-opt-h">이미지는 SillyTavern 폴더의 data/(사용자 폴더, 보통 default-user)/user/images/vnstudio 에 저장돼요.</p>`)}
       <div class="vn-row"><button class="vn-btn" data-act="show-prompt">모델에 보내는 지시문 보기</button><button class="vn-btn danger" data-act="reset-aff">이 채팅 호감도 초기화</button></div>`;
   }
   function fillInputs(root) {
     const s = S();
     $$('[data-vk]', root).forEach((el) => { const v = s[el.dataset.vk]; if (el.type === 'checkbox') el.checked = !!v; else el.value = v ?? ''; });
+    syncProv(root);
+  }
+  /* 이미지 방식에 맞는 입력칸만 보인다 */
+  function syncProv(root) {
+    const pv = S().imgProvider || 'vertex';
+    $$('[data-prov]', root || document).forEach((el) => { el.style.display = el.dataset.prov.split(' ').includes(pv) ? '' : 'none'; });
   }
   function openModal(tab) { if (tab) st.tab = tab; ui.q('#vn-modal').classList.remove('vn-off'); renderModal(); }
 
@@ -2299,7 +2472,7 @@ IMPORTANT: absolutely no text, letters, numbers, labels, signs with writing, leg
   const counter = () => (M().mode === 'daily' ? M().hist.length : (ctx().chat || []).length);
   const sinceEvent = () => counter() - M().lastEvent;
   const eventAllowed = (strong = false) => sinceEvent() >= (strong ? 2 : (M().mode === 'daily' ? 3 : S().eventEvery));
-  const eventPossible = () => (S().useSS && !!ssWorld()?.gallery?.length) || !!S().geminiKey.trim();
+  const eventPossible = () => (S().useSS && !!ssWorld()?.gallery?.length) || !!imgReady();
   const newEntry = (url, turn, extra = {}) => ({ id: uid(), kind: 'image', url, title: [turn.loc, turn.noChar ? turn.npcName : turn.ch?.name].filter(Boolean).join(' · ') || '이벤트', caption: turn.event, loc: turn.loc || '', t: Date.now(), ...extra });
   const synthEvent = (turn) => `A key dramatic moment in the scene: ${turn.lines.filter((l) => l.k !== 'user').slice(0, 4).map((l) => l.t).join(' ').slice(0, 280)}`;
   async function getEventEntry(turn) {
@@ -2594,7 +2767,7 @@ Rules: "npcs" lists named people (not ${ch.name}, not ${c.name1}) who actually a
     const has = Object.keys(spriteCache[chKey(ch)] || {}).length > 0 || Object.values(cd.outfits).some((o) => o.base || Object.keys(o.emo || {}).length);
     if (has) return;
     cd.asked = true; saveSettings();
-    if (!S().geminiKey.trim()) { toastr.info('이 캐릭터는 표정 이미지가 없어요. API 키를 넣으면 AI로 만들 수 있고, 표정·의상 탭에서 직접 올려도 돼요.'); return; }
+    if (!imgReady()) { toastr.info('이 캐릭터는 표정 이미지가 없어요. API 키를 넣으면 AI로 만들 수 있고, 표정·의상 탭에서 직접 올려도 돼요.'); return; }
     if (confirm(`${ch.name}의 표정 이미지가 아직 없어요.\nAI로 기본 표정 ${SET6.length}장을 만들어 둘까요?\n이미지 ${SET6.length}회(+외형 태그 추출 텍스트 1회) 요금이 발생해요. 요청은 ${S().imgGapSec}초 간격으로 한 장씩 보내서 2~4분쯤 걸려요.\n(취소하면 대화 중 필요할 때 한 장씩만 만들어요)`)) runGenSet(ch, '기본', SET6);
   }
   async function runGenSet(ch, outfit, list) {
@@ -2961,6 +3134,8 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
     return refs;
   }
   /* 선택 화면의 이미지 한 칸: 사진을 누르면 크게 보기, [선택]으로 고르기, 🗑로 완전 삭제. 투명 배경도 보이게 체크무늬 */
+  /* 같은 선택창을 다시 누르면 닫고, 다른 선택창이 열려 있으면 먼저 치운다 */
+  const togglePick = (kind) => { const g = ui.q('#vn-pickgrid'); if (g && st.pickKind === kind) { g.remove(); st.pickKind = ''; return true; } g?.remove(); return false; };
   const pickTile = (u, selAct, badge = '') => `<div class="vn-pickitem" data-u="${esc(u)}"><img loading="lazy" decoding="async" src="${esc(u)}" alt="" title="클릭하면 크게 보기" onerror="this.parentNode.classList.add('broken')"><small class="vn-pk-bad">파일 없음</small>${badge ? `<small class="vn-pk-badge ${badge === '미사용' ? 'unused' : ''}">${badge}</small>` : ''}<div class="vn-pickbtns">${selAct ? `<button class="vn-btn sm" data-act="${selAct}" data-u="${esc(u)}">선택</button>` : ''}<button class="vn-btn sm danger" data-act="img-purge" data-u="${esc(u)}" title="이 이미지를 쓰는 모든 곳에서 떼어내고 파일도 삭제">🗑</button></div></div>`;
   async function listVnImages() {
     const hdr = ctx().getRequestHeaders();
@@ -2984,10 +3159,10 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
         if (!n || n === '기본') return toastr.info('다른 이름을 써 주세요.');
         if (cd.outfits[n]) return toastr.info('이미 있는 의상이에요.');
         cd.outfits[n] = { base: '', emo: {} }; delete cd.suggest[n]; saveSettings(); renderModal();
-        if (s.geminiKey.trim() && confirm(`'${n}' 기준 이미지 1장을 지금 만들까요? (이미지 1회 요금)\\n표정은 나중에 필요할 때 따로 만들 수 있어요.`)) runGenSet(ch, n, ['neutral']);
+        if (imgReady() && confirm(`'${n}' 기준 이미지 1장을 지금 만들까요? (이미지 1회 요금)\\n표정은 나중에 필요할 때 따로 만들 수 있어요.`)) runGenSet(ch, n, ['neutral']);
         return;
       }
-      case 'sug-add': { const n = el.dataset.name; if (!cd.outfits[n]) cd.outfits[n] = { base: '', emo: {} }; delete cd.suggest[n]; saveSettings(); renderModal(); if (s.geminiKey.trim() && confirm(`'${n}' 기준 이미지 1장을 지금 만들까요? (이미지 1회 요금)`)) runGenSet(ch, n, ['neutral']); return; }
+      case 'sug-add': { const n = el.dataset.name; if (!cd.outfits[n]) cd.outfits[n] = { base: '', emo: {} }; delete cd.suggest[n]; saveSettings(); renderModal(); if (imgReady() && confirm(`'${n}' 기준 이미지 1장을 지금 만들까요? (이미지 1회 요금)`)) runGenSet(ch, n, ['neutral']); return; }
       case 'emo-toggle': { const e = el.dataset.l, list = enabledEmos(ch), i = list.indexOf(e); if (i >= 0) { if (e === 'neutral') return toastr.info('neutral은 기준 이미지라 빼지 않아요.'); list.splice(i, 1); } else list.push(e); saveSettings(); return renderModal(); }
       case 'emo-cut': {
         const o = cd.outfits[ofName], l = el.dataset.l, url = o?.emo?.[l]; if (!url) return;
@@ -3006,6 +3181,7 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
       }
       case 'dos-reset': { const old = cd.profile; delete cd.profile; saveSettings(); dropImage(old); return renderModal(); }
       case 'dos-pick': {
+        if (togglePick('dos-pick')) return;
         st.pickKind = 'dos-pick';
         const imgs = [...new Set([cd.profile, ...Object.values(cd.outfits).flatMap((o) => [o.base, ...Object.values(o.emo || {})])].filter(Boolean))];
         const body = ui.q('#vn-mbody'); body.insertAdjacentHTML('afterbegin', `<div class="vn-pickgrid" id="vn-pickgrid"><p class="vn-hint">대표로 쓸 이미지를 고르세요 (사진을 누르면 크게 보여요)</p>${imgs.map((u) => pickTile(u, 'dos-pickset')).join('')}<button class="vn-btn sm" data-act="dos-pickclose">닫기</button></div>`); return;
@@ -3029,7 +3205,7 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
       case 'npcfact-add': { const n = npcByName(st.npcSel); if (!n) return; const l = $q('#vn-nfl', ui.root).value.trim().slice(0, 14), v = $q('#vn-nfv', ui.root).value.trim().slice(0, 90); if (!l || !v) return; (n.facts ||= {})[l] = v; saveMeta(); return renderModal(); }
       case 'npcfact-del': { const n = npcByName(st.npcSel); if (n?.facts) { delete n.facts[el.dataset.l]; saveMeta(); } return renderModal(); }
       case 'npc-pick': {
-        const n = npcByName(st.npcSel); if (!n) return; st.pickKind = 'npc-pick';
+        const n = npcByName(st.npcSel); if (!n) return; if (togglePick('npc-pick')) return; st.pickKind = 'npc-pick';
         const body = ui.q('#vn-mbody'); body.insertAdjacentHTML('afterbegin', `<div class="vn-pickgrid" id="vn-pickgrid"><p class="vn-hint">'${esc(n.name)}'의 이미지로 쓸 사진을 고르세요 (사진을 누르면 크게 보이고, [선택]으로 고르면 기준 사진이 돼요)</p>${npcImgPool().map((u) => pickTile(u, 'npc-pickset')).join('')}<button class="vn-btn sm" data-act="npc-pickclose">닫기</button></div>`); return;
       }
       case 'npc-pickset': { const n = npcByName(st.npcSel); if (n) { const o1 = n.img, o2 = n.base; n.img = n.base = el.dataset.u; n.imgAi = false; delete n.lookPhoto; if (n.lookSrc === 'photo') { n.look = ''; delete n.lookSrc; } saveMeta(); dropImage(o1); if (o2 !== o1) dropImage(o2); } return renderModal(); }
@@ -3040,10 +3216,12 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
         const kind = st.pickKind; await renderModal(); if (kind) return modalAction(kind, el); return;
       }
       case 'img-manage': {
+        if (togglePick('img-manage')) return;
         st.pickKind = 'img-manage'; el.disabled = true; ui.status('저장된 이미지 목록을 불러오는 중…');
         const files = await listVnImages(); ui.status(''); el.disabled = false;
         if (!files) return toastr.warning('이 서버에서는 이미지 목록을 가져올 수 없어요. 폴더(data/사용자폴더/user/images/vnstudio)를 직접 확인해 주세요.');
         const refs = allImageRefs(), urls = files.map((f) => '/user/images/vnstudio/' + f.split('/').pop()).reverse(), used = urls.filter((u) => refs.has(u)).length;
+        if (st.pickKind !== 'img-manage') return;
         const body = ui.q('#vn-mbody'); body.querySelector('#vn-pickgrid')?.remove();
         body.insertAdjacentHTML('afterbegin', `<div class="vn-pickgrid big" id="vn-pickgrid"><p class="vn-hint">이미지 ${urls.length}개 · 지금 이 채팅/설정에서 쓰는 ${used}개 · 안 쓰는 ${urls.length - used}개. 파일은 SillyTavern 폴더의 data/(사용자 폴더, 보통 default-user)/user/images/vnstudio 에 있어요. 파일이 많아도 생성 속도엔 영향이 없고 저장 공간만 차지해요. 다른 채팅에서 쓰는 이미지도 '미사용'으로 보일 수 있으니, 사진을 눌러 크게 보고 지우세요.</p>${urls.map((u) => pickTile(u, '', refs.has(u) ? '사용 중' : '미사용')).join('')}<button class="vn-btn sm" data-act="npc-pickclose">닫기</button></div>`); return;
       }
@@ -3060,7 +3238,7 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
       case 'npc-cut': { const n = npcByName(st.npcSel); if (!n?.img) return; ui.status('배경을 지우는 중…'); try { const c = await cutoutImage(n.img); if (c.url) { const old = n.img, root = s.cutOrig?.[old] || old; (s.cutOrig ||= {})[c.url] = root; delete s.cutOrig[old]; n.img = c.url; saveMeta(); saveSettings(); if (root !== old) dropImage(old); toastr.success('배경을 지웠어요 (↩ 버튼으로 원본으로 되돌릴 수 있어요)'); } else toastr.warning('배경이 균일하지 않아 지우지 못했어요.'); } catch (e) { toastr.error('실패: ' + (e.message || e)); } ui.status(''); return renderModal(); }
       case 'npc-gen': {
         const n = npcByName(st.npcSel); if (!n) return;
-        if (!s.geminiKey.trim()) return toastr.warning('이미지 API 키를 먼저 넣어 주세요.');
+        if (!imgReady()) return toastr.warning('이미지 API 키를 먼저 넣어 주세요.');
         if (!confirm(`'${n.name}' 이미지를 AI로 만들까요?${npcBaseUrl(n) ? '\n선택한 이미지는 얼굴·머리·눈 참조로만 보내고, 옷·소품은 외형 태그(설명·채팅 기준)를 따라요.' : ''}\n(이미지 1회${n.look ? '' : ' + 외형 태그가 없으면 텍스트 1회'} 요금)`)) return;
         ui.status(`${n.name} 이미지를 만드는 중…`);
         try { const old = n.img; if (old && !n.imgAi && !n.base) n.base = old; n.img = await genNpcImage(n, ch); n.imgAi = true; saveMeta(); if (old && old !== n.base && old !== n.photo) dropImage(old); toastr.info(`외형 근거: ${st.lastNpcSrc}${n.look ? ' · 외형 태그도 저장했어요' : ''}`); } catch (e) { toastr.error('생성 실패: ' + (e.message || e)); }
@@ -3076,7 +3254,7 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
       case 'of-del': if (!confirm(`'${ofName}' 의상을 삭제할까요? (서버의 이미지 파일은 남아요)`)) return; { const o = cd.outfits[ofName], urls = [o?.base, ...Object.values(o?.emo || {})]; delete cd.outfits[ofName]; if (cd.def === ofName) cd.def = ''; if (meta.outfit[ch.name] === ofName) delete meta.outfit[ch.name]; saveSettings(); saveMeta(); urls.forEach(dropImage); return refresh(); }
       case 'emo-del': { const old = cd.outfits[ofName]?.emo?.[el.dataset.l]; delete cd.outfits[ofName]?.emo?.[el.dataset.l]; saveSettings(); dropImage(old); return refresh(); }
       case 'of-genset': {
-        if (!s.geminiKey.trim()) return toastr.warning('이미지 API 키를 먼저 넣어 주세요.');
+        if (!imgReady()) return toastr.warning('이미지 API 키를 먼저 넣어 주세요.');
         const list = el.dataset.n === '1' ? ['neutral'] : enabledEmos(ch);
         const have = cd.outfits[ofName]?.emo || {}, need = [...new Set(['neutral', ...list])].filter((e) => !have[e]).length;
         if (!need) return toastr.info('만들 표정이 없어요. 위에서 사용할 표정을 고르면 여기에 장수가 표시돼요.');
@@ -3084,7 +3262,7 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
         return runGenSet(ch, ofName, list);
       }
       case 'emo-regen': {
-        if (!s.geminiKey.trim()) return toastr.warning('이미지 API 키를 먼저 넣어 주세요.');
+        if (!imgReady()) return toastr.warning('이미지 API 키를 먼저 넣어 주세요.');
         if (!confirm(`'${el.dataset.l}' 표정을 새로 만들까요? (이미지 1회 요금)`)) return;
         ui.status('표정을 다시 만드는 중…');
         try { const url = await genSpriteImage(ch, ofName, el.dataset.l); const o = cd.outfits[ofName], old = o.emo?.[el.dataset.l]; (o.emo ||= {})[el.dataset.l] = url; if (el.dataset.l === 'neutral') o.base = url; saveSettings(); dropImage(old); } catch (e) { toastr.error('생성 실패: ' + (e.message || e)); }
@@ -3114,7 +3292,7 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
         try {
           if (srcv === 'upload') { const f = $q('#vn-pl-file', ui.root)?.files?.[0]; if (!f) return toastr.info('올릴 이미지를 선택해 주세요.'); ui.status('이미지를 올리는 중…'); url = await uploadImage(f, 2000); user = true; ui.status(''); }
           else if (srcv === 'ss') { url = st.plAddImg; if (!url) return toastr.info('불러올 이미지를 골라 주세요.'); user = true; }
-          else if (srcv === 'gen') { if (!s.geminiKey.trim()) return toastr.warning('이미지 API 키를 먼저 넣어 주세요.'); }
+          else if (srcv === 'gen') { if (!imgReady()) return toastr.warning('이미지 API 키를 먼저 넣어 주세요.'); }
         } catch (e) { ui.status(''); return toastr.error('업로드 실패: ' + (e.message || e)); }
         placesOf()[k] = { name, url, desc, user }; saveSettings();
         if (srcv === 'gen') { if (confirm('배경 이미지를 지금 생성할까요? (이미지 요금이 발생해요)')) await generatePlace(name, true); else toastr.info('장소는 목록에 남겨 뒀어요. 나중에 "배경 생성"을 누르면 돼요.'); }
@@ -3122,9 +3300,25 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
       }
       case 'pl-ssopen': st.plPickFor = st.plPickFor === plKey ? '' : plKey; return renderModal();
       case 'pl-ssset': { const p = plEnsure(plKey, el.closest('[data-k]')?.dataset.n); p.url = el.dataset.u; p.user = true; saveSettings(); if (pk(meta.loc) === plKey) ui.setBg(p.url, p.name); st.plPickFor = ''; return renderModal(); }
-      case 'pl-gen': { if (!s.geminiKey.trim()) return toastr.warning('이미지 API 키를 먼저 넣어 주세요.'); const nm = el.closest('[data-k]')?.dataset.n || placesOf()[plKey]?.name || plKey; if (!confirm('이 장소의 배경을 새로 생성할까요? (이미지 요금이 발생해요)')) return; el.disabled = true; await generatePlace(nm, true); if (pk(meta.loc) === plKey) applyBg(nm); return renderModal(); }
+      case 'pl-gen': { if (!imgReady()) return toastr.warning('이미지 API 키를 먼저 넣어 주세요.'); const nm = el.closest('[data-k]')?.dataset.n || placesOf()[plKey]?.name || plKey; if (!confirm('이 장소의 배경을 새로 생성할까요? (이미지 요금이 발생해요)')) return; el.disabled = true; await generatePlace(nm, true); if (pk(meta.loc) === plKey) applyBg(nm); return renderModal(); }
       case 'pl-del': { if (!confirm('이 장소를 삭제할까요?')) return; const old = placesOf()[plKey]?.url; delete placesOf()[plKey]; saveSettings(); dropImage(old); return renderModal(); }
       case 'gal-del': { const id = el.closest('[data-id]').dataset.id, gone = meta.gallery.find((e) => e.id === id); meta.gallery = meta.gallery.filter((e) => e.id !== id); saveMeta(); dropImage(gone?.url); dropImage(gone?.video); return renderModal(); }
+      case 'wipe-all': {
+        if (!confirm('VN Studio가 저장한 데이터를 모두 지울까요?\n\n· 서버의 이미지 파일 전부 (user/images/vnstudio)\n· 설정과 API 키, 표정·의상·배경 목록\n· 지금 열린 채팅의 호감도·기록·NPC·일정\n\n되돌릴 수 없어요. 다른 채팅에 남은 기록은 이 버튼으로 지워지지 않아요(README의 완전 삭제 방법 참고).')) return;
+        if (!confirm('정말 모두 지울까요? 지운 뒤에는 확장 프로그램을 삭제하고 SillyTavern을 새로고침하는 걸 권해요.')) return;
+        el.disabled = true; ui.status('VN Studio 데이터를 지우는 중…');
+        let n = 0, listed = true;
+        try {
+          const files = await listVnImages();
+          if (!files) listed = false; else for (const f of files) { if (await deleteServerFile('/user/images/vnstudio/' + f.split('/').pop())) n++; }
+          const c = ctx(); delete c.extensionSettings[MODULE];
+          if (c.chatMetadata) delete c.chatMetadata[MODULE];
+          await (c.saveSettings ? c.saveSettings() : c.saveSettingsDebounced()); saveMeta();
+        } catch (e) { toastr.error('삭제 중 오류: ' + (e.message || e)); }
+        ui.status(''); el.disabled = false;
+        toastr.success(`설정·현재 채팅 기록을 지웠고 이미지 ${n}개를 지웠어요.${listed ? '' : ' (이 서버는 이미지 목록을 줄 수 없어, 이미지 폴더는 직접 지워 주세요)'}`);
+        ui.close?.(); return;
+      }
       case 'clean-scan': {
         el.disabled = true; ui.status('저장된 이미지를 확인하는 중…');
         const files = await listVnImages(); ui.status(''); el.disabled = false;
@@ -3202,7 +3396,7 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
         if (pk(meta.loc) === plKey) applyBg(p.name); return renderModal();
       }
       case 'pl-genall': {
-        if (!s.geminiKey.trim()) return toastr.warning('이미지 API 키를 먼저 넣어 주세요.');
+        if (!imgReady()) return toastr.warning('이미지 API 키를 먼저 넣어 주세요.');
         const todo = placeRows().filter((r) => !bgFor(r.name));
         if (!todo.length) return toastr.info('이미지가 없는 장소가 없어요.');
         if (!confirm(`이미지가 없는 장소 ${todo.length}곳의 배경을 만들까요?\n이미지 ${todo.length}회 요금이 발생하고, ${s.imgGapSec}초 간격으로 한 장씩 보내 약 ${Math.ceil(todo.length * (s.imgGapSec + 12) / 60)}분 걸려요.\n(진행 중 위쪽 \"중지\" 버튼으로 멈출 수 있어요)`)) return;
@@ -3219,7 +3413,7 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
       }
       case 'map-gen': {
         const w = ssWorld(); if (!w) return;
-        if (!s.geminiKey.trim()) return toastr.warning('이미지 API 키를 먼저 넣어 주세요.');
+        if (!imgReady()) return toastr.warning('이미지 API 키를 먼저 넣어 주세요.');
         const scope = st.mapScope, old = w.maps?.[scope], nm = scope === 'world' ? '세계' : (placeById(scope)?.name || '');
         if (!confirm(`'${nm}' 지도 이미지를 ${old ? '새로 ' : ''}생성할까요? (이미지 1회 요금)${old ? '\n이전 지도 이미지는 배경 탭의 "지도 이미지"에 남아요.' : ''}`)) return;
         el.disabled = true; ui.status('지도 이미지를 그리는 중… ' + nm);
@@ -3240,7 +3434,7 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
       case 'map-wish': meta.wish = st.mapSel; saveMeta(); return toastr.success(`다음 하루 계획에서 '${st.mapSel}'에서 만나도록 요청해요.`);
       case 'map-regen': {
         const n = st.mapSel; if (!n) return;
-        if (!s.geminiKey.trim()) return toastr.warning('이미지 API 키를 먼저 넣어 주세요.');
+        if (!imgReady()) return toastr.warning('이미지 API 키를 먼저 넣어 주세요.');
         if (!confirm(`'${n}' 배경을 ${bgFor(n) ? '새로 ' : ''}생성할까요? (이미지 1회 요금)`)) return;
         await generatePlace(n, true); if (pk(meta.loc) === pk(n)) applyBg(n); return renderModal();
       }
@@ -3402,6 +3596,47 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
     });
     root.addEventListener('change', (e) => { const t = e.target; if (t.closest('#vn-modal') && (t.dataset.act || t.id === 'vn-look')) modalChange(t); });
     ui.q('#vn-in').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); const v = e.target.value; e.target.value = ''; submitText(v); } e.stopPropagation(); });
+    /* 미니맵: ＋ － ⟲ ⤢ 버튼, 휠 확대, 끌어서 이동 */
+    root.addEventListener('click', (e) => {
+      const b = e.target.closest?.('[data-mm]'); if (!b) return;
+      e.stopPropagation();
+      const k = b.dataset.mm;
+      if (k === 'in') mmZoom(1); else if (k === 'out') mmZoom(-1);
+      else if (k === 'fit') { Object.assign(st.mm ||= {}, { z: 1, tx: 0, ty: 0 }); mmApply(); }
+      else if (k === 'size') { const W = [150, 190, 250, 320], s = S(), i = W.findIndex((x) => x >= (+s.mmWidth || 190)); s.mmWidth = W[(i + 1) % W.length]; saveSettings(); ui.miniMap(); }
+    }, true);
+    {
+      let mmWheelAt = 0, pan = null;
+      root.addEventListener('wheel', (e) => {
+        const v = e.target.closest?.('.vn-mm-view'); if (!v) return;
+        e.preventDefault(); if (Date.now() - mmWheelAt < 110) return; mmWheelAt = Date.now();
+        const r = v.getBoundingClientRect(); mmZoom(e.deltaY < 0 ? 1 : -1, ((e.clientX - r.left) / r.width) * 100, ((e.clientY - r.top) / r.height) * 100);
+      }, { passive: false });
+      root.addEventListener('pointerdown', (e) => {
+        const v = e.target.closest?.('.vn-mm-view'); if (!v) return;
+        const c = st.mm; if (!c || c.z <= 1) return;
+        const r = v.getBoundingClientRect(); pan = { x: e.clientX, y: e.clientY, tx: c.tx, ty: c.ty, w: r.width, h: r.height, id: e.pointerId };
+        try { v.setPointerCapture(e.pointerId); } catch { /* 무시 */ }
+      });
+      window.addEventListener('pointermove', (e) => {
+        if (!pan || pan.id !== e.pointerId) return;
+        const c = st.mm; c.tx = pan.tx + ((e.clientX - pan.x) / pan.w) * 100; c.ty = pan.ty + ((e.clientY - pan.y) / pan.h) * 100; mmApply();
+      });
+      const end = (e) => { if (pan && pan.id === e.pointerId) pan = null; };
+      window.addEventListener('pointerup', end); window.addEventListener('pointercancel', end);
+      /* 두 손가락으로 확대/축소 (모바일) */
+      const ptrs = new Map(); let base = 0;
+      root.addEventListener('pointerdown', (e) => { if (!e.target.closest?.('.vn-mm-view')) return; ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY }); if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; base = Math.hypot(a.x - b.x, a.y - b.y); pan = null; } });
+      window.addEventListener('pointermove', (e) => {
+        if (!ptrs.has(e.pointerId)) return; ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (ptrs.size !== 2 || !base) return;
+        const [a, b] = [...ptrs.values()], d = Math.hypot(a.x - b.x, a.y - b.y), v = $q('.vn-mm-view', ui.root); if (!v) return;
+        const r = v.getBoundingClientRect(), vx = (((a.x + b.x) / 2 - r.left) / r.width) * 100, vy = (((a.y + b.y) / 2 - r.top) / r.height) * 100;
+        if (d / base > 1.35) { mmZoom(1, vx, vy); base = d; } else if (d / base < 0.74) { mmZoom(-1, vx, vy); base = d; }
+      });
+      const endp = (e) => { ptrs.delete(e.pointerId); if (ptrs.size < 2) base = 0; };
+      window.addEventListener('pointerup', endp); window.addEventListener('pointercancel', endp);
+    }
     /* 지도 확대/축소: 마우스 휠(포인터 위치 기준), 두 손가락 벌리기/오므리기, 확대한 상태에서 끌어서 이동 */
     let mapWheelAt = 0;
     root.addEventListener('wheel', (e) => {
@@ -3491,11 +3726,24 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
     <div class="vn-set-row"><button class="menu_button" id="vn-open-btn">미연시 화면 열기</button><button class="menu_button" id="vn-import-btn" title="Scene Studio에 저장해 둔 API 설정을 복사해요">Scene Studio 설정 가져오기</button></div>
     <small>자세한 게임 옵션(입력 방식, 자동 생성, 화풍 등)은 화면 안 ☰ 메뉴 → 설정에 있어요.</small>
     <h4>이미지</h4>
-    <div class="vn-set-row"><label>방식</label><select data-vk="imgProvider" class="text_pole"><option value="vertex">Agent Platform (구 Vertex AI)</option><option value="gemini">Gemini Developer API</option></select></div>
-    <div class="vn-set-row"><label>프로젝트 ID</label><input type="text" class="text_pole" data-vk="vertexProject" placeholder="비워도 이미지는 돼요"></div>
-    <div class="vn-set-row"><label>리전</label><input type="text" class="text_pole" data-vk="vertexLocation"></div>
-    <div class="vn-set-row"><label>API 키</label><input type="password" class="text_pole" data-vk="geminiKey" autocomplete="off"></div>
-    <div class="vn-set-row"><label>모델</label><input type="text" class="text_pole" data-vk="geminiModel"><button class="menu_button" id="vn-test-btn">연결 테스트</button></div>
+    <div class="vn-set-row"><label>방식</label><select data-vk="imgProvider" class="text_pole"><option value="vertex">Agent Platform (구 Vertex AI)</option><option value="gemini">Gemini Developer API</option><option value="nanogpt">NanoGPT</option><option value="comfy">ComfyUI (내 컴퓨터)</option></select></div>
+    <div class="vn-set-row" data-prov="vertex"><label>프로젝트 ID</label><input type="text" class="text_pole" data-vk="vertexProject" placeholder="비워도 이미지는 돼요"></div>
+    <div class="vn-set-row" data-prov="vertex"><label>리전</label><input type="text" class="text_pole" data-vk="vertexLocation"></div>
+    <div class="vn-set-row" data-prov="vertex gemini"><label>API 키</label><input type="password" class="text_pole" data-vk="geminiKey" autocomplete="off"></div>
+    <div class="vn-set-row" data-prov="vertex gemini"><label>모델</label><input type="text" class="text_pole" data-vk="geminiModel"></div>
+    <div class="vn-set-row" data-prov="nanogpt"><label>API 키</label><input type="password" class="text_pole" data-vk="nanoKey" autocomplete="off" placeholder="NanoGPT API 키"></div>
+    <div class="vn-set-row" data-prov="nanogpt"><label>모델</label><input type="text" class="text_pole" data-vk="nanoModel" placeholder="예: hidream, flux-kontext, gpt-image-1"></div>
+    <div class="vn-set-row" data-prov="nanogpt"><label>주소</label><input type="text" class="text_pole" data-vk="nanoBase" placeholder="https://nano-gpt.com/api/v1"></div>
+    <label class="checkbox_label" data-prov="nanogpt"><input type="checkbox" data-vk="nanoRefs"><span>참조 이미지도 함께 보내기 (flux-kontext·gpt-image-1처럼 이미지 입력을 받는 모델만. 받지 못하면 자동으로 빼고 다시 시도해요)</span></label>
+    <div class="vn-set-row" data-prov="comfy"><label>ComfyUI 주소</label><input type="text" class="text_pole" data-vk="comfyUrl" placeholder="http://127.0.0.1:8188"></div>
+    <div class="vn-set-row" data-prov="comfy"><label>체크포인트</label><input type="text" class="text_pole" data-vk="comfyModel" placeholder="예: sdxl_anime.safetensors (ComfyUI models/checkpoints 안의 파일 이름)"></div>
+    <div class="vn-set-row" data-prov="comfy"><label>기본 크기</label><input type="number" class="text_pole" data-vk="comfyBase" min="256" max="2048" step="64"><label>스텝</label><input type="number" class="text_pole" data-vk="comfySteps" min="1" max="150"><label>CFG</label><input type="number" class="text_pole" data-vk="comfyCfg" min="1" max="30" step="0.5"></div>
+    <div class="vn-set-row" data-prov="comfy"><label>샘플러</label><input type="text" class="text_pole" data-vk="comfySampler"><label>스케줄러</label><input type="text" class="text_pole" data-vk="comfyScheduler"></div>
+    <div class="vn-set-row" data-prov="comfy"><label>제외 요소</label><input type="text" class="text_pole" data-vk="comfyNeg"></div>
+    <div class="vn-set-row" data-prov="comfy" style="align-items:flex-start"><label>워크플로 JSON</label><textarea class="text_pole" data-vk="comfyWorkflow" rows="4" placeholder="비우면 기본 워크플로(체크포인트 1개)를 써요. 내 워크플로는 ComfyUI에서 'API 형식으로 저장'한 JSON을 붙여 넣고, 바뀔 값 자리에 %prompt% %negative% %seed% %width% %height% %steps% %cfg% %sampler% %scheduler% %model% 를 적어 주세요."></textarea></div>
+    <div class="vn-set-row" data-prov="comfy"><button class="menu_button" id="vn-comfy-tpl" type="button">기본 워크플로 JSON 채우기</button></div>
+    <small data-prov="comfy">ComfyUI는 SillyTavern 서버를 거쳐 요청해서 CORS 설정이 필요 없어요. 글로만 그리고 참조 이미지는 보내지 않아서, 캐릭터 일관성은 외형 태그에 의존해요.</small>
+    <div class="vn-set-row"><button class="menu_button" id="vn-test-btn" type="button">연결 테스트</button></div>
     <h4>영상 (Veo)</h4>
     <div class="vn-set-row"><label>방식</label><select data-vk="videoProvider" class="text_pole"><option value="auto">이미지와 동일</option><option value="vertex">Agent Platform</option><option value="gemini">Gemini Developer API</option></select></div>
     <div class="vn-set-row"><label>모델</label><input type="text" class="text_pole" data-vk="videoModel"></div>
@@ -3766,11 +4014,15 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
     if (!document.getElementById('vn-fonts')) { const l = document.createElement('link'); l.id = 'vn-fonts'; l.rel = 'stylesheet'; l.href = 'https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=Gowun+Dodum&display=swap'; document.head.appendChild(l); }
     (document.getElementById('extensions_settings2') || document.getElementById('extensions_settings'))?.insertAdjacentHTML('beforeend', drawerHtml);
     const drawer = document.getElementById('vn-drawer');
-    if (!S().geminiKey && ssSet()?.geminiKey) importSceneStudio(true);    // 장면 생성기에 키가 있으면 처음 한 번 자동으로 가져온다
+    if (!S().geminiKey && !S().nanoKey && !S().ssImported && ssSet()?.geminiKey) { S().ssImported = true; importSceneStudio(true); }    // 장면 생성기에 키가 있으면 처음 한 번 자동으로 가져온다
     fillInputs(drawer); renderProfiles();
     document.getElementById('vn-open-btn')?.addEventListener('click', openVN);
     document.getElementById('vn-import-btn')?.addEventListener('click', () => importSceneStudio(false));
     document.getElementById('vn-test-btn')?.addEventListener('click', testGemini);
+    document.getElementById('vn-comfy-tpl')?.addEventListener('click', () => {
+      const t = JSON.stringify(COMFY_DEFAULT_WF, null, 2); S().comfyWorkflow = t; saveSettings(); fillInputs(document.getElementById('vn-drawer'));
+      toastr.success('기본 워크플로를 채웠어요. 필요한 노드를 고쳐 쓰세요.');
+    });
     const onSettingInput = (e) => {
       const el = e.target; if (!el?.dataset?.vk) return;
       const k = el.dataset.vk, s = S();
@@ -3780,6 +4032,7 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
       if (k === 'devMode' && !el.checked && st.tab === 'dev') st.tab = 'set';
       if (k === 'enabled' && !el.checked && st.open) ui.close();
       if (k === 'theme') ui.applyLook();
+      if (k === 'imgProvider') syncProv(document.getElementById('vn-drawer'));
       if (k === 'bgBlank' || k === 'bgBlankColor' || k === 'bgBlankAuto') matchBlank(st.lastSprite?.url, st.lastSprite?.kind);
       if ((k === 'useSSLook' || k === 'useSS') && st.open) renderModal();
     };
@@ -3809,6 +4062,7 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
     fabVisible();
 
     c.eventSource.on(ET.CHAT_CHANGED, () => {
+      taskCancelAll(); ui.status?.('');   // 이전 캐릭터의 분석·생성 작업이 팝업에 남지 않게 중지
       st.turn = null; st.evt = null; st.pendingEvt = null; st.lastSprite = null; st.curEmo = ''; st.slotInfo = null; st.pendingUser = ''; st.calSel = null; st.calMonth = ''; st.schedDay = 0; st.selChar = '';
       finishText(true); showWaiting(false);
       for (const k of Object.keys(loreCache)) delete loreCache[k];
