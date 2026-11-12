@@ -527,3 +527,42 @@ div.vn-pickitem { cursor: default; }
 @keyframes vn-mm-pulse { 50% { filter: brightness(1.2); box-shadow: 0 0 0 1px rgba(0,0,0,.5), 0 0 16px var(--petal); } }
 #vn-root.vn-uihide .vn-mm-wrap { opacity: 0; pointer-events: none; }
 #vn-root[data-size="xs"] .vn-mm-wrap { display: none; }
+
+/* ===== 1.12 ===== */
+/* 작은 확인 팝업 · 가져오기 · 배경 제거 미리보기 */
+.vn-dlg-back { position: fixed; inset: 0; z-index: 2147483000; display: grid; place-items: center; padding: 14px; background: rgba(0,0,0,.5); }
+.vn-dlg { box-sizing: border-box; width: min(360px, 100%); max-height: 88dvh; overflow-y: auto; padding: 14px 16px; color: var(--moon, #fff); background: rgba(var(--panel-rgb, 36,28,48), .98); border: 1px solid rgba(var(--petal-rgb, 255,160,190), .5); border-radius: 14px; box-shadow: 0 8px 30px rgba(0,0,0,.5); font-size: .92rem; }
+.vn-dlg.wide { width: min(560px, 100%); }
+.vn-dlg h4 { margin: 0 0 8px; font-size: 1rem; }
+.vn-dlg-body p { margin: 0 0 8px; line-height: 1.55; }
+.vn-dlg-ck { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: .88rem; cursor: pointer; }
+.vn-dlg-btns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.ei-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; margin: 8px 0; max-height: 40dvh; overflow-y: auto; }
+.ei-it { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px; font-size: .72rem; background: rgba(255,255,255,.06); border-radius: 8px; cursor: pointer; }
+.ei-it img { width: 100%; aspect-ratio: 1; object-fit: contain; border-radius: 6px; background: repeating-conic-gradient(#8884 0 25%, #0000 0 50%) 0 0 / 12px 12px; }
+.ei-it input { position: absolute; top: 4px; left: 4px; }
+.cp-view { display: grid; place-items: center; padding: 6px; border-radius: 10px; background: repeating-conic-gradient(#8885 0 25%, #fff2 0 50%) 0 0 / 16px 16px; }
+.cp-cv { max-width: 100%; max-height: 46dvh; }
+.cp-row { margin: 8px 0 4px; }
+/* 설정·공략집 보조 */
+.vn-opt.sm .vn-ck, .vn-ck.sm { font-size: .8rem; }
+.vn-opt-h.sm { font-size: .74rem; }
+.vn-lbl.sm { font-size: .78rem; color: var(--mist); }
+.vn-relrow label { flex: 0 0 auto; }
+.vn-sprhd { margin-top: 2px; padding-top: 4px; font-size: .74rem; color: var(--mist); border-top: 1px solid rgba(255,255,255,.15); }
+.vn-sprpop label.sel { grid-template-columns: 5.6em 1fr; }
+.vn-sprpop select { min-width: 0; }
+/* NPC 왼쪽/오른쪽 따로 */
+.vn-sp.vn-sp-npc { --ng: var(--npc-gap, 26); --ns: var(--npc-s, 1); --ny: var(--npc-y, 0); left: calc(50% + var(--ng) * 1%); height: calc(70% * var(--ns)); bottom: calc(var(--ny) * 1vh); }
+.vn-sp.vn-sp-npc.left { --ng: var(--npc-gap-l, 26); --ns: var(--npc-s-l, 1); --ny: var(--npc-y-l, 0); left: calc(50% - var(--ng) * 1%); }
+#vn-root[data-size="xs"] .vn-sp.vn-sp-npc { height: calc(52% * var(--ns)); }
+#vn-root[data-size="sm"] .vn-sp.vn-sp-npc { height: calc(60% * var(--ns)); }
+#vn-root .vn-sp.vn-sp-npc.animal { height: calc(40% * var(--ns)); }
+/* 미니맵: 지도 탭과 같은 핀·마커 */
+#vn-root .vn-mm .vn-pin { width: 24px; height: 24px; }
+#vn-root .vn-mm .vn-pin.ro { pointer-events: none; }
+#vn-root .vn-mm .vn-pin .vn-ic { font-size: 13px; }
+#vn-root .vn-mm .vn-pin span { display: none; }
+#vn-root .vn-mm .vn-mm-stage.zoomed .vn-pin span, #vn-root .vn-mm .vn-pin.cur span { display: block; }
+#vn-root .vn-mm .vn-mk { width: 20px; height: 20px; }
+.vn-mm .vn-mk img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; object-position: top; pointer-events: none; }
