@@ -73,7 +73,7 @@
     outLang: 'ui', translateInput: false, keepLen: true, keepLenText: '',
     choiceCount: 4, choiceLen: 70, choiceP1: '', choiceP2: '', choiceP3: '', choiceP4: '', choiceExtra: '',
     useSSLook: true, lookModel: '', lookModelOk: '', lookVision: true, useEELook: true, showUsage: true, showMiniMap: true, mmWidth: 190, stylePreset: 'ss', stylePresets: [], negative: '',
-    analyzePlaces: false, bgBlank: false, bgBlankColor: '#ffffff', bgBlankAuto: true, textH: 0, lpWidth: 0, fabPos: null, htmlPos: null, fabShow: true, theme: 'sakura', spriteScale: 100, spriteY: 0, evText: true, followCount: 3, llmTimeout: 150, deleteFiles: true, hideInChat: false, htmlAuto: false, lang: 'ko', devMode: false, hideBlocks: true, hideYaml: true, hideRegex: '', cutout: true, cutTol: 34, cutGap: 3, edgeShade: 15, mmShape: 'square', emosDefault: ['neutral'], enabled: true, fab: true, autoOpen: false, inject: true, choicesMode: 'both', eventEvery: 4,
+    analyzePlaces: false, bgBlank: false, bgBlankColor: '#ffffff', bgBlankAuto: true, textH: 0, lpWidth: 0, fabPos: null, htmlPos: null, fabShow: true, theme: 'sakura', spriteScale: 100, spriteY: 0, evText: true, followCount: 3, llmTimeout: 150, deleteFiles: true, hideInChat: false, htmlAuto: false, lang: 'ko', devMode: false, hideBlocks: true, hideYaml: true, hideRegex: '', cutout: true, cutTol: 34, cutGap: 3, edgeShade: 0, mmShape: 'square', emosDefault: ['neutral'], enabled: true, fab: true, autoOpen: false, inject: true, choicesMode: 'both', eventEvery: 4,
     useST: true, classify: true, useAvatars: true, autoSprite: true, npcAutoImg: false, cutOrig: {}, choiceFs: 90, choiceFsMin: 78, minTextH: 150, npcGap: 26, npcScale: 100, npcY: 0, npcGapL: 26, npcScaleL: 100, npcYL: 0, mmNpc: true, loreAskSkip: false, npcFirst: 'R', npcFace: true, spriteCap: 6, useSS: true, autoAnalyze: true, hideTags: '',
     autoBg: true, autoEventImg: true, autoEventVid: false, videoConfirm: true,
     style: 'visual novel background art, soft anime painterly style, clean lines, rich atmosphere, high detail',
@@ -108,6 +108,7 @@
     if (!s.m15) { s.m15 = true; s.autoOpen = false; s.lookVision = false; }   // 1.5: SillyTavern 채팅 중에 팝업이 저절로 뜨지 않게, 외형 추출은 장면 생성기 방식으로
     if (!s.m17) { s.m17 = true; if (!s.lookModel || /^gemini-(3\.1-flash|2\.5-flash)$/.test(s.lookModel)) s.lookModel = ''; s.lookModelOk = ''; s.lookVision = true; delete s.npcStyleRef; }   // 1.10: 없는 모델 이름(gemini-3.1-flash)이 기본값으로 박혀 404가 나던 것을 자동 선택으로
     if (!s.m18) { s.m18 = true; s.npcGapL = s.npcGap; s.npcScaleL = s.npcScale; s.npcYL = s.npcY; s.emosDefault = ['neutral']; }   // 1.12: NPC 왼쪽/오른쪽 따로 조절, 기본 표정은 neutral만
+    if (!s.m19) { s.m19 = true; s.edgeShade = 0; }   // 1.12: 가장자리 어둡기 기본 0
     return s;
   }
   const saveSettings = () => ctx().saveSettingsDebounced();
@@ -1071,11 +1072,11 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
   function cutoutPixels(d, w, h, tol = 34, gap = 3) {
     const idx = (x, y) => (y * w + x) * 4, med = (arr) => arr.sort((a, b) => a - b)[arr.length >> 1];
     const rs = [], gs = [], bs = [];
-    const pushPx = (x, y) => { const i = idx(x, y); rs.push(d[i]); gs.push(d[i + 1]); bs.push(d[i + 2]); };
+    const pushPx = (x, y) => { const i = idx(x, y); if (d[i + 3] < 10) return; rs.push(d[i]); gs.push(d[i + 1]); bs.push(d[i + 2]); };   // 이미 투명한 곳은 배경색 계산에서 뺀다
     for (let x = 0; x < w; x += 2) { pushPx(x, 0); pushPx(x, h - 1); }
     for (let y = 0; y < h; y += 2) { pushPx(0, y); pushPx(w - 1, y); }
-    const bg = [med(rs), med(gs), med(bs)];
-    const dist = (i) => { const a = d[i] - bg[0], b = d[i + 1] - bg[1], c = d[i + 2] - bg[2]; return Math.sqrt(a * a + b * b + c * c); };
+    const bg = rs.length ? [med(rs), med(gs), med(bs)] : [255, 255, 255];
+    const dist = (i) => { if (d[i + 3] < 10) return 0; const a = d[i] - bg[0], b = d[i + 1] - bg[1], c = d[i + 2] - bg[2]; return Math.sqrt(a * a + b * b + c * c); };
     const cand = new Uint8Array(w * h); for (let p = 0; p < cand.length; p++) cand[p] = dist(p * 4) < tol ? 1 : 0;
     const g = Math.max(0, Math.round(gap)), pass = g > 0 ? morph(cand, w, h, g, true) : cand;   // 좁은 틈을 막은 배경 후보
     const flood = new Uint8Array(w * h), stack = [];
@@ -1127,7 +1128,7 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
     const prompt = `${notes.join(' ')}\nGenerate one image: a visual novel character sprite, waist-up portrait of "${ch.name}" (${look || 'as in the reference'}). Outfit: ${outfitText}. Hands empty and relaxed: do NOT draw bags, shoulder straps, backpacks, handbags or any carried or held object, even if the reference image shows one, unless the outfit text explicitly mentions it. Expression and pose: ${EMO_DESC[emoKey] || emoKey}. Natural, expressive, candid body language and a slight three-quarter angle, NOT a stiff straight-on attention stance. Rendering style: ${style}. Match EXACTLY the rendering style, level of realism, lighting and color grading of the reference image (if the reference is photorealistic, make this photorealistic too, NOT anime or illustration). Background: plain flat solid pure white, no floor, no shadow, no gradient, no props behind. Single character, no text, no UI, no watermark.${ch._parent ? ` The reference card image may show several people: draw ONLY ${ch.name}.` : ''}`;
     let url = await geminiGenerate(prompt, refs, '3:4', 'vngen_', `표정 ${ch.name}·${outfit}·${emoKey}`);
     if (s.cutout) {
-      try { const c = await cutoutImage(url); if (c.url) { const orig = url; url = c.url; dropImage(orig); } else toastr.info(`배경 제거를 건너뛰었어요 (배경이 균일하지 않아요, 인식 ${(c.ratio * 100).toFixed(0)}%). 이미지는 원본으로 저장했어요.`); }
+      try { const c = await cutoutImage(url); if (c.url) { const orig = url; url = c.url; (S().cutOrig ||= {})[c.url] = orig; saveSettings(); } else toastr.info(`배경 제거를 건너뛰었어요 (배경이 균일하지 않아요, 인식 ${(c.ratio * 100).toFixed(0)}%). 이미지는 원본으로 저장했어요.`); }
       catch (e) { console.warn('[VN] 배경 제거 실패', e); }
     }
     return url;
@@ -1372,7 +1373,7 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
       this.root.style.setProperty('--npc-gap', String(pf(s.npcGap, 26)));
       this.root.style.setProperty('--npc-s', (pf(s.npcScale, 100) / 100).toFixed(2));
       this.root.style.setProperty('--npc-y', String(pf(s.npcY, 0)));
-      this.root.style.setProperty('--vn-shade', (clamp(pf(s.edgeShade, 15), 0, 100) / 100).toFixed(2));
+      this.root.style.setProperty('--vn-shade', (clamp(pf(s.edgeShade, 0), 0, 100) / 100).toFixed(2));
       this.root.style.setProperty('--npc-gap-l', String(pf(s.npcGapL, 26)));
       this.root.style.setProperty('--npc-s-l', (pf(s.npcScaleL, 100) / 100).toFixed(2));
       this.root.style.setProperty('--npc-y-l', String(pf(s.npcYL, 0)));
@@ -1974,10 +1975,10 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
         const s = pl.slots?.[i] || {}, e = (cal?.events || []).find((x) => x.slot === i), picks = e?.picks?.length ? ` · 선택: ${e.picks.map(esc).join(' › ')}` : '';
         return `<div class="vn-dd"><div class="vn-dd-h"><b>${n}</b><small>${esc(s.time || SLOT_TIMES[i])}</small><span class="vn-tag">${esc(shortAct(sch[i] || 'free'))}</span><span class="vn-tag k-${s.kind}">${esc(kindLabel(s.kind))}${s.kind === 'npc' && s.npc ? ` · ${esc(s.npc)}` : ''}</span>${s.special ? '<span class="vn-tag sp">★ 하이라이트</span>' : ''}</div>
           <p>${esc(s.loc || '')}${s.premise ? ` — ${esc(s.premise)}` : ''}</p>
-          ${e ? `<p class="vn-dd-e">${esc(e.title || '')}${picks}${e.aff ? ` · 호감 ${e.aff > 0 ? '+' : ''}${e.aff}` : ''}<button class="vn-x" data-act="cal-evdel" data-day="${dn}" data-idx="${(cal?.events || []).indexOf(e)}" aria-label="삭제">✕</button></p>` : (dn <= meta.day && !(dn === meta.day && i >= meta.slot) ? '' : '<p class="vn-hint">아직 진행 전</p>')}</div>`;
+          ${e ? `<p class="vn-dd-e">${esc(e.title || '')}${picks}${e.aff ? ` · 호감 ${e.aff > 0 ? '+' : ''}${e.aff}` : ''}<button class="vn-btn sm" data-act="slot-view" data-day="${dn}" data-idx="${i}">내용 보기 · 선택 바꾸기</button><button class="vn-x" data-act="cal-evdel" data-day="${dn}" data-idx="${(cal?.events || []).indexOf(e)}" aria-label="삭제">✕</button></p>` : (dn <= meta.day && !(dn === meta.day && i >= meta.slot) ? '' : '<p class="vn-hint">아직 진행 전</p>')}</div>`;
       }).join('');
     } else if (cal?.events?.length) {
-      body = cal.events.map((e, ei) => `<div class="vn-dd"><div class="vn-dd-h"><b>${esc(SLOTS[e.slot] || '')}</b></div><p>${esc(e.loc || '')} — ${esc(e.title || '')}${e.aff ? ` · 호감 ${e.aff > 0 ? '+' : ''}${e.aff}` : ''}<button class="vn-x" data-act="cal-evdel" data-day="${dn}" data-idx="${ei}" aria-label="삭제">✕</button></p></div>`).join('');
+      body = cal.events.map((e, ei) => `<div class="vn-dd"><div class="vn-dd-h"><b>${esc(SLOTS[e.slot] || '')}</b></div><p>${esc(e.loc || '')} — ${esc(e.title || '')}${e.aff ? ` · 호감 ${e.aff > 0 ? '+' : ''}${e.aff}` : ''}<button class="vn-btn sm" data-act="slot-view" data-day="${dn}" data-idx="${e.slot}">내용 보기 · 선택 바꾸기</button><button class="vn-x" data-act="cal-evdel" data-day="${dn}" data-idx="${ei}" aria-label="삭제">✕</button></p></div>`).join('');
     } else body = '<p class="vn-hint">기록된 내용이 없어요.</p>';
     const canGo = dn === meta.day || (dn > meta.day);
     return `<div class="vn-caldet"><h4>${fmtDate(dt)}${dn >= 1 ? ` · ${dn}일째` : ''}${(cal?.weather || pl?.weather) ? ` · ${weatherIcon(cal?.weather || pl?.weather)} ${esc(cal?.weather || pl?.weather)}` : ''}${pl?.title ? ` — ${esc(pl.title)}` : ''}</h4>
@@ -2263,11 +2264,12 @@ IMPORTANT: absolutely no text, letters, numbers, labels, signs with writing, leg
     return { pins: kids.map(pin).join(''), mks: html + here.map((m, i, arr) => badge(m, 50, 7, (i - (arr.length - 1) / 2) * 25, 0)).join(''), shown };
   }
   function tabMap() {
-    return chkS('showMiniMap', '화면 왼쪽 위(관계창 아래)에 미니맵 표시', '지금 있는 장소를 작은 지도로 보여 줘요. 지도 이미지가 없으면 나타나지 않고, 누르면 이 지도가 열려요. 아래 지도와 똑같은 핀·마커로 그려요.') + chkS('mmNpc', '미니맵에도 NPC 표시', 'NPC를 장소 핀 둘레의 작은 아이콘으로 보여 줘요. 이미지가 있는 NPC는 사진으로, 없으면 기본 아이콘으로 나와요. "마커 전체"일 때는 나·캐릭터 마커도 함께 보여요.') + selRow('mmShape', '미니맵 모양', [['square', '정사각형 (지도 비율)'], ['circle', '원형']], '미니맵은 마우스 휠·두 손가락으로 확대/축소하고, 가장자리를 끌면 크기가 바뀌어요. 더블클릭하면 이 지도 탭이 열려요.').replace('class="vn-opt"', 'class="vn-opt sm"').replace('class="vn-opt-h"', 'class="vn-opt-h sm"') + tabMapBody();
+    return `<p class="vn-hint sm">지금 있는 장소를 작은 지도로 보여 줘요. 휠·두 손가락으로 확대/축소하고, 가장자리를 끌면 크기가 바뀌고, 더블클릭하면 이 탭이 열려요.</p>
+      <div class="vn-mmopts"><label class="vn-ck sm"><input type="checkbox" data-vk="showMiniMap"><span>미니맵 표시</span></label><label class="vn-ck sm"><input type="checkbox" data-vk="mmNpc"><span>NPC 표시</span></label><label class="vn-mmshape">모양 <select data-vk="mmShape"><option value="square">정사각형</option><option value="circle">원형</option></select></label></div>${tabMapBody()}`;
   }
   function tabMapBody() {
     const w = ssWorld();
-    const analyzeBox = `<div class="vn-anbox"><div><b>장소·마커 자동 분석</b><p class="vn-hint">장면 생성기와 같은 방식으로 캐릭터 카드·로어북·최근 대화에서 장소와 마커를 찾아 지도에 추가해요. 모델 1회 호출이에요. 이미 있는 장소는 건너뛰어요.</p></div><button class="vn-btn primary" data-act="map-analyze">분석하기 (모델 1회)</button></div>`;
+    const analyzeBox = `<div class="vn-anbox sm" title="장면 생성기와 같은 방식으로 캐릭터 카드·로어북·최근 대화에서 장소와 마커를 찾아 지도에 추가해요. 모델 1회 호출이고, 이미 있는 장소는 건너뛰어요."><span>장소·마커 자동 분석 <small>(모델 1회)</small></span><button class="vn-btn sm primary" data-act="map-analyze">분석하기</button></div>`;
     if (!w?.places) return `${analyzeBox}<p class="vn-hint">이 채팅의 장소 데이터가 아직 없어요. 위 버튼으로 만들거나, 장면 생성기에서 먼저 분석해도 같은 데이터를 써요.</p>`;
     const parents = w.places.filter((p) => w.places.some((c) => c.parent === p.id) || ['city', 'town', 'building', 'castle', 'school', 'home', 'inn', 'dungeon'].includes(p.kind));
     const scopes = [['world', '세계'], ...parents.map((p) => [p.id, p.name])];
@@ -2517,6 +2519,58 @@ IMPORTANT: absolutely no text, letters, numbers, labels, signs with writing, leg
     if (!dos.facts[label] && Object.keys(dos.facts).length >= 40) return;
     dos.facts[label] = val; saveMeta();
     if (notify) toastr.info(`공략집에 추가: ${label} — ${val}`);
+  }
+  /* ---------- 지난 시간대 다시 보기 · 선택 바꿔보기 · 그 시점으로 되돌아가기 ---------- */
+  function openSlotReview(day, idx) {
+    const meta = M(), cal = meta.cal[day], e = (cal?.events || []).find((x) => x.slot === idx); if (!e) return;
+    const node = meta.nodes[`${day}:${idx}`], ch = activeChar(), me = ctx().name1 || '나';
+    const lineH = (l) => `<p class="rv-l ${esc(l.k)}">${l.k === 'narr' ? '' : `<b>${esc(l.k === 'user' ? me : (l.who || ch?.name || ''))}</b> `}${esc(l.t)}</p>`;
+    const picks = e.picks || [];
+    let path = [];
+    const wrap = document.createElement('div'); wrap.className = 'vn-dlg-back';
+    const render = () => {
+      let cur = node, shown = '', depth = 0;
+      for (const pi of path) { const c = cur?.choices?.[pi]; if (!c) break; shown += lineH({ k: 'user', t: c.t }) + (c.reply || []).map(lineH).join(''); cur = c; depth++; }
+      const opts = (cur?.choices || []).map((c, i) => `<button type="button" class="vn-btn sm rv-ch" data-p="${i}">${picks.includes(c.t) ? '★ ' : ''}${esc(c.t)}</button>`).join('');
+      wrap.innerHTML = `<div class="vn-dlg wide" role="dialog" aria-modal="true"><h4>${day}일째 ${esc(SLOTS[idx] || '')} · ${esc(e.title || '')}</h4><div class="vn-dlg-body">
+        <p class="vn-hint">${esc(e.loc || '')}${e.aff ? ` · 호감 ${e.aff > 0 ? '+' : ''}${e.aff}` : ''}</p>
+        <div class="rv-box">${e.scene?.length ? e.scene.map(lineH).join('') : (node ? node.lines.map(lineH).join('') : '<p class="vn-hint">저장된 대사가 없어요.</p>')}</div>
+        ${node ? `<h4 class="rv-h">선택 바꿔보기</h4><p class="vn-hint">★는 그때 고른 선택이에요. 다른 선택을 눌러 결과를 미리 볼 수 있어요. 여기서는 기록과 호감도가 바뀌지 않아요.</p>${shown ? `<div class="rv-box alt">${shown}</div>` : ''}<div class="rv-choices">${opts || '<span class="vn-hint">이 뒤로는 선택지가 없어요.</span>'}</div>` : '<p class="vn-hint">이 장면의 선택지는 오래돼서 남아 있지 않아요. 아래 \"이 시점으로 되돌아가기\"로 다시 만들 수 있어요.</p>'}
+        </div><div class="vn-dlg-btns">${path.length ? '<button type="button" class="vn-btn sm" data-r="reset">처음 선택지로</button>' : ''}<button type="button" class="vn-btn sm danger" data-r="redo" title="이 시간대부터 다시 진행해요. 이 시간대 이후의 기록과 호감도 변화는 지워져요">이 시점으로 되돌아가기</button><button type="button" class="vn-btn sm primary" data-r="close">닫기</button></div></div>`;
+      i18nNode(wrap);
+    };
+    const close = () => { document.removeEventListener('keydown', onKey, true); wrap.remove(); };
+    const onKey = (ev) => { if (ev.key === 'Escape') { ev.stopPropagation(); close(); } };
+    document.addEventListener('keydown', onKey, true);
+    wrap.addEventListener('click', async (ev) => {
+      const ch0 = ev.target.closest('[data-p]'); if (ch0) { path.push(+ch0.dataset.p); return render(); }
+      const b = ev.target.closest('[data-r]'); if (!b) { if (ev.target === wrap) close(); return; }
+      if (b.dataset.r === 'reset') { path = []; return render(); }
+      if (b.dataset.r === 'close') return close();
+      if (b.dataset.r === 'redo') {
+        if (!confirm(`${day}일째 ${SLOTS[idx]}로 되돌아갈까요?\n\n· 이 시간대 이후의 일상 기록(이벤트·선택)이 지워져요\n· 그 사이에 바뀐 호감도도 되돌려요\n· 이 시간대부터 다시 선택할 수 있어요`)) return;
+        close(); ui.q('#vn-modal').classList.add('vn-off'); await rewindTo(day, idx);
+      }
+    });
+    ui.root.appendChild(wrap); render();
+  }
+  async function rewindTo(day, idx) {
+    const meta = M(), ch = activeChar(); if (!ch) return;
+    let back = 0;
+    for (const dk of Object.keys(meta.cal)) {
+      const d = +dk; if (d < day) continue;
+      const c = meta.cal[dk], keep = [];
+      for (const ev of c.events || []) { if (d === day && ev.slot < idx) keep.push(ev); else back += +ev.aff || 0; }
+      c.events = keep;
+      if (d > day) delete meta.cal[dk];
+    }
+    for (const k of Object.keys(meta.plans)) if (+k > day) delete meta.plans[k];
+    for (const k of Object.keys(meta.nodes)) { const [d, i] = k.split(':').map(Number); if (d > day || (d === day && i > idx)) delete meta.nodes[k]; }
+    if (back) setAff(ch.name, affOf(ch.name) - back, true);
+    meta.mode = 'daily'; meta.day = day; meta.slot = idx; meta.hist = (meta.hist || []).slice(0, 0);
+    saveMeta(); st.turn = null; ui.hud(null); finishText(true);
+    toastr.info(`${day}일째 ${SLOTS[idx]}부터 다시 시작해요`);
+    return playSlot();
   }
   function calAdd(day, ev) {
     const meta = M(), c = (meta.cal[day] ||= { events: [] });
@@ -2968,7 +3022,7 @@ Rules for variety and story:
       const cal = (meta.cal[day] ||= { events: [] }); cal.title = pl.title; cal.weather = pl.weather; cal.sched = [...(meta.sched[day] || [])];   // 계획은 지워져도 캘린더에는 남긴다
       cal.plan = { title: pl.title, weather: pl.weather, slots: pl.slots.map((s) => ({ time: s.time, loc: s.loc, kind: s.kind, npc: s.npc, premise: s.premise, special: s.special })) };
       for (const n of pl.npcs || []) if (n?.name && !meta.npcs.some((x) => x.name === n.name)) { meta.npcs.push({ name: String(n.name).slice(0, 20), role: String(n.role || '').slice(0, 20), desc: String(n.desc || '').slice(0, 80) }); }
-      for (const k of Object.keys(meta.plans)) if (+k < day - 3) { delete meta.plans[k]; for (const nk of Object.keys(meta.nodes)) if (nk.startsWith(k + ':')) delete meta.nodes[nk]; }
+      for (const k of Object.keys(meta.plans)) if (+k < day - 7) { delete meta.plans[k]; for (const nk of Object.keys(meta.nodes)) if (nk.startsWith(k + ':')) delete meta.nodes[nk]; }
       saveMeta(); return pl;
     }).finally(() => { delete planP[key]; }));
   }
@@ -3091,7 +3145,7 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
   async function nextSlot() {
     const meta = M(), si = st.slotInfo;
     if (si) {
-      calAdd(si.day, { slot: si.idx, loc: si.loc, title: si.title || '이벤트', aff: st.slotAff, kind: si.kind, premise: si.premise || '', npc: si.npc || '', picks: [...(st.slotPicks || [])] });
+      calAdd(si.day, { slot: si.idx, loc: si.loc, title: si.title || '이벤트', aff: st.slotAff, kind: si.kind, premise: si.premise || '', npc: si.npc || '', picks: [...(st.slotPicks || [])], scene: st.sceneLines.slice(-40).map((l) => ({ k: l.k, who: l.who || '', t: String(l.t || '').slice(0, 240) })) });
       meta.hist.push({ r: 'sys', t: `${SLOTS[si.idx]} ${si.title || ''}${st.slotAff ? ` (${st.slotAff > 0 ? '+' : ''}${st.slotAff})` : ''}` }); if (meta.hist.length > 40) meta.hist.splice(0, meta.hist.length - 40);
       meta.lastScene = st.sceneLines.slice(-5).map((l) => ({ k: l.k, who: l.who, t: l.t }));
     }
@@ -3194,7 +3248,7 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
     const pose = animal ? "natural animal pose, head turned slightly toward the viewer's LEFT" : "natural, relaxed standing pose, three-quarter view with the body and face turned slightly toward the viewer's LEFT";
     const prompt = `${notes.join(' ')}\nGenerate one image: a visual novel character sprite, ${shot} of ${subject}${n.role ? `, ${n.role}` : ''}${appearance}. Outfit: only what the tags state; otherwise a simple, plain outfit that fits the role. No props. ${pose}. Rendering style: ${styleMain()}. Match EXACTLY the rendering style, level of realism, lighting and color grading described here (if photorealistic, make this photorealistic too, NOT anime or illustration). Background: plain flat solid pure white, no floor, no shadow, no gradient, no props behind. Single subject, no text, no UI, no watermark.`;
     let url = await geminiGenerate(prompt, refs, animal ? '1:1' : '3:4', 'vngen_', `NPC ${n.name}`);
-    if (s.cutout) { try { const c = await cutoutImage(url); if (c.url) { const orig = url; url = c.url; dropImage(orig); } } catch { /* 원본 유지 */ } }
+    if (s.cutout) { try { const c = await cutoutImage(url); if (c.url) { const orig = url; url = c.url; (S().cutOrig ||= {})[c.url] = orig; saveSettings(); } } catch { /* 원본 유지 */ } }
     n.faces = 'left';   // 위 지시대로 왼쪽을 보게 만들었으니 기록해 둔다 (NPC 탭에서 바꿀 수 있어요)
     return url;
   }
@@ -3393,9 +3447,10 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
       case 'emo-toggle': { const e = el.dataset.l, list = enabledEmos(ch), i = list.indexOf(e); if (i >= 0) { if (e === 'neutral') return toastr.info('neutral은 기준 이미지라 빼지 않아요.'); list.splice(i, 1); } else list.push(e); saveSettings(); return renderModal(); }
       case 'emo-cut': {
         const o = cd.outfits[ofName], l = el.dataset.l, url = o?.emo?.[l]; if (!url) return;
-        const cut = await cutDialog(url); if (!cut) return;
+        const src0 = s.cutOrig?.[url] || url;   // 이미 한 번 지운 이미지는 보관된 원본에서 다시 시작해요
+        const cut = await cutDialog(src0); if (!cut) return;
         ui.status('배경을 지우는 중…');
-        try { const c = await cutoutImage(url, cut.tol, cut.gap); if (c.url) { const root = s.cutOrig?.[url] || url; (s.cutOrig ||= {})[c.url] = root; delete s.cutOrig[url]; o.emo[l] = c.url; if (o.base === url) o.base = c.url; saveSettings(); if (root !== url) dropImage(url); toastr.success('배경을 지웠어요 (↩ 버튼으로 원본으로 되돌릴 수 있어요)'); } else toastr.warning(`배경이 균일하지 않아 지우지 못했어요 (인식 ${(c.ratio * 100).toFixed(0)}%). ✂ 창에서 민감도를 조절해 보세요.`); }
+        try { const c = await cutoutImage(src0, cut.tol, cut.gap); if (c.url) { const root = s.cutOrig?.[url] || url; (s.cutOrig ||= {})[c.url] = root; delete s.cutOrig[url]; o.emo[l] = c.url; if (o.base === url) o.base = c.url; saveSettings(); if (root !== url) dropImage(url); toastr.success('배경을 지웠어요 (↩ 버튼으로 원본으로 되돌릴 수 있어요)'); } else toastr.warning(`배경이 균일하지 않아 지우지 못했어요 (인식 ${(c.ratio * 100).toFixed(0)}%). ✂ 창에서 민감도를 조절해 보세요.`); }
         catch (e) { toastr.error('배경 제거 실패: ' + (e.message || e)); }
         ui.status(''); return refresh();
       }
@@ -3463,7 +3518,7 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
         saveMeta(); dropImage(old); return renderModal();
       }
       case 'npc-look-ee': { const n = npcByName(st.npcSel), v = n && eeNpcLook(n); if (!v) return toastr.info('표정 추출기에 이 이름의 외형 태그가 아직 없어요.'); n.look = v.slice(0, 600); n.lookSrc = 'ee'; saveMeta(); toastr.success('표정 추출기의 외형 태그를 가져왔어요. (텍스트 호출 없음)'); return renderModal(); }
-      case 'npc-cut': { const n = npcByName(st.npcSel); if (!n?.img) return; const cut = await cutDialog(n.img); if (!cut) return; ui.status('배경을 지우는 중…'); try { const c = await cutoutImage(n.img, cut.tol, cut.gap); if (c.url) { const old = n.img, root = s.cutOrig?.[old] || old; (s.cutOrig ||= {})[c.url] = root; delete s.cutOrig[old]; n.img = c.url; saveMeta(); saveSettings(); if (root !== old) dropImage(old); toastr.success('배경을 지웠어요 (↩ 버튼으로 원본으로 되돌릴 수 있어요)'); } else toastr.warning('배경이 균일하지 않아 지우지 못했어요.'); } catch (e) { toastr.error('실패: ' + (e.message || e)); } ui.status(''); return renderModal(); }
+      case 'npc-cut': { const n = npcByName(st.npcSel); if (!n?.img) return; const src0 = s.cutOrig?.[n.img] || n.img; const cut = await cutDialog(src0); if (!cut) return; ui.status('배경을 지우는 중…'); try { const c = await cutoutImage(src0, cut.tol, cut.gap); if (c.url) { const old = n.img, root = s.cutOrig?.[old] || old; (s.cutOrig ||= {})[c.url] = root; delete s.cutOrig[old]; n.img = c.url; saveMeta(); saveSettings(); if (root !== old) dropImage(old); toastr.success('배경을 지웠어요 (↩ 버튼으로 원본으로 되돌릴 수 있어요)'); } else toastr.warning('배경이 균일하지 않아 지우지 못했어요.'); } catch (e) { toastr.error('실패: ' + (e.message || e)); } ui.status(''); return renderModal(); }
       case 'npc-gen': {
         const n = npcByName(st.npcSel); if (!n) return;
         if (!imgReady()) return toastr.warning('이미지 API 키를 먼저 넣어 주세요.');
@@ -3574,6 +3629,7 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
       case 'plan-redo': if (!confirm('이 날의 계획과 미리 만든 장면을 지우고 다시 만들까요? (모델 호출이 다시 필요해요)')) return; delete meta.plans[day]; for (const k of Object.keys(meta.nodes)) if (k.startsWith(day + ':')) delete meta.nodes[k]; saveMeta(); if (day === meta.day && meta.mode === 'daily') { st.turn = null; } return renderModal();
       case 'sched-go': { ui.q('#vn-modal').classList.add('vn-off'); if (meta.mode !== 'daily') { meta.mode = 'daily'; saveMeta(); st.turn = null; ui.hud(null); return playSlot(); } if (!st.turn) return playSlot(); return; }
       /* 캘린더 */
+      case 'slot-view': return openSlotReview(+el.dataset.day, +el.dataset.idx);
       case 'cal-evdel': { const c = meta.cal[el.dataset.day]; if (c?.events) c.events.splice(+el.dataset.idx, 1); saveMeta(); return renderModal(); }
       case 'cal-daydel': { if (!confirm('이 날의 캘린더 기록(진행한 장면·선택·저장된 계획)을 지울까요? 되돌릴 수 없어요.')) return; delete meta.cal[el.dataset.day]; saveMeta(); return renderModal(); }
       case 'cal-clearall': { if (!confirm(`캘린더에 저장된 ${Object.keys(meta.cal).length}일치 기록을 모두 지울까요? 되돌릴 수 없어요.`)) return; meta.cal = {}; saveMeta(); return renderModal(); }
