@@ -566,3 +566,30 @@ div.vn-pickitem { cursor: default; }
 #vn-root .vn-mm .vn-mm-stage.zoomed .vn-pin span, #vn-root .vn-mm .vn-pin.cur span { display: block; }
 #vn-root .vn-mm .vn-mk { width: 20px; height: 20px; }
 .vn-mm .vn-mk img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; object-position: top; pointer-events: none; }
+
+/* ===== 1.12 (2) ===== */
+/* 화면 가장자리 어둡기 */
+.vn-bgwrap::after { background: linear-gradient(to bottom, rgba(0,0,0,var(--vn-shade, .15)), transparent 22%, transparent 55%, rgba(var(--panel-rgb), calc(var(--vn-shade, .15) * 2))); }
+.vn-top { background: linear-gradient(to bottom, rgba(var(--panel-rgb), calc(var(--vn-shade, .15) * 3)), transparent); }
+.vn-sp { filter: drop-shadow(0 2px 6px rgba(0,0,0,var(--vn-shade, .15))); }
+.vn-sp.is-portrait { filter: none; }
+.vn-sp-prev, .vn-sp.cur.dim, .vn-sp.vn-sp-npc { filter: brightness(calc(1 - var(--vn-shade, .15) * 1.5)) drop-shadow(0 2px 6px rgba(0,0,0,var(--vn-shade, .15))); }
+.vn-sp.vn-sp-npc.talk { filter: drop-shadow(0 2px 6px rgba(0,0,0,var(--vn-shade, .15))); }
+/* 미니맵 */
+.vn-mm { position: relative; }
+.vn-mm.circle { border-radius: 50%; }
+.vn-mm.circle .vn-mm-view { border-radius: 50%; }
+.vn-mm.circle .vn-mm-stage img { object-fit: fill; }
+.vn-mm-rs { position: absolute; z-index: 6; touch-action: none; }
+.vn-mm-rs.r { top: 8px; right: 0; bottom: 8px; width: 9px; cursor: ew-resize; }
+.vn-mm-rs.b { left: 8px; right: 8px; bottom: 0; height: 9px; cursor: ns-resize; }
+.vn-mm-rs.c { right: 0; bottom: 0; width: 14px; height: 14px; cursor: nwse-resize; }
+.vn-mm.circle .vn-mm-rs.c { right: 10%; bottom: 10%; }
+.vn-mm:hover .vn-mm-rs.c { background: linear-gradient(135deg, transparent 50%, rgba(255,255,255,.7) 50%); }
+.vn-opt.sm .vn-orow label { font-size: .8rem; }
+/* 의상 제안 삭제 */
+.vn-sugchip { display: inline-flex; align-items: center; gap: 1px; margin: 2px 4px 2px 0; }
+.vn-sugx { padding: 0 6px; font-size: .72rem; line-height: 1.6; color: #fff; background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.25); border-radius: 0 10px 10px 0; cursor: pointer; }
+.vn-sugx:hover { background: #c62828; }
+#vn-root .vn-btn.wipe-red, .vn-btn.wipe-red { color: #fff; background: #c62828; border: 1px solid #ff8a80; font-weight: 700; }
+.vn-btn.wipe-red:hover { background: #e53935; }
