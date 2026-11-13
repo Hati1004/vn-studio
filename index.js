@@ -408,6 +408,7 @@
   function injectText() {
     const s = S();
     if (!s.enabled || !s.inject) return '';
+    if (!st.open && !s.autoOpen) return '';   // 미연시 창을 안 쓰는 동안(닫혀 있고 자동 열기도 꺼짐)에는 [VN] 블록 규칙을 모델에 보내지 않는다 → ST 채팅에 [VN] 블록이 안 남음
     const c = ctx(), ch = activeChar(), name = ch?.name || 'the character', user = c.name1 || 'the player';
     const cd = ch ? cdata(ch) : { outfits: { 기본: {} } };
     const outfits = Object.keys(cd.outfits);
@@ -1574,8 +1575,8 @@ ${OUTN() ? `Write the story text, the status block values and ALL choices in ${O
     clearEnd() {
       ui.q('#vn-box').classList.remove('end'); ui.q('#vn-choices').innerHTML = ''; ui.q('#vn-choices').classList.remove('on'); ui.q('#vn-endbtns').innerHTML = ''; ui.q('.vn-evmini-wrap')?.remove();
     },
-    open() { ui.build(); ui.root.classList.remove('vn-off'); st.open = true; document.body.classList.add('vn-open'); ui.fit?.(); requestAnimationFrame(() => ui.fit?.()); setTimeout(() => ui.fit?.(), 150); },
-    close() { ui.root?.classList.add('vn-off'); st.open = false; document.body.classList.remove('vn-open'); finishText(true); },
+    open() { ui.build(); ui.root.classList.remove('vn-off'); st.open = true; document.body.classList.add('vn-open'); refreshInject(); ui.fit?.(); requestAnimationFrame(() => ui.fit?.()); setTimeout(() => ui.fit?.(), 150); },
+    close() { ui.root?.classList.add('vn-off'); st.open = false; document.body.classList.remove('vn-open'); finishText(true); refreshInject(); },
   };
 
   /* 배경 없음 모드: 캐릭터 이미지에 남은 배경색(팔 사이 같은 곳)과 같은 색으로 채워 투명처럼 보이게 한다 */
