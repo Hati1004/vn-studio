@@ -603,11 +603,70 @@ div.vn-pickitem { cursor: default; }
 .vn-anbox.sm { margin: 0 0 8px; padding: 4px 10px; gap: 8px; font-size: .84rem; }
 .vn-anbox.sm small { color: var(--mist); }
 .rv-box { max-height: 30dvh; overflow-y: auto; padding: 8px 10px; margin: 4px 0 8px; background: rgba(255,255,255,.06); border-radius: 10px; }
-.rv-box.alt { border: 1px dashed rgba(var(--petal-rgb, 255,160,190), .5); }
 .rv-l { margin: 0 0 6px; line-height: 1.55; font-size: .88rem; }
 .rv-l.narr { color: var(--mist); font-style: italic; }
 .rv-l.user b { color: var(--apricot); }
-.rv-h { margin: 6px 0 2px; font-size: .92rem; }
-.rv-choices { display: flex; flex-direction: column; gap: 6px; }
-.rv-ch { text-align: left; white-space: normal; line-height: 1.4; }
 .vn-dd-e .vn-btn.sm { margin-left: 8px; }
+
+/* ===== 1.12.2: 폰용 화면 =====
+   설정 → 화면 → "폰용 화면"을 켜면 #vn-root 에 .vn-mobile 이 붙어요.
+   아래 규칙은 전부 #vn-root.vn-mobile 아래에만 있어서, 끄면 기존 화면과 똑같아요.
+   (기존 규칙과 우선순위가 같을 땐 파일 맨 끝인 이 블록이 이겨요) */
+
+/* 1) 위쪽 HUD: 좁은 화면에서는 버튼 한 줄 → 그 아래 장소·시간 칩 (장소 이름이 세로로 쪼개지지 않게) */
+@media (max-width: 700px) {
+  #vn-root.vn-mobile .vn-top { flex-direction: column; align-items: stretch; gap: 8px; padding: calc(8px + env(safe-area-inset-top, 0px)) 10px 20px; }
+  #vn-root.vn-mobile .vn-tools { order: -1; width: 100%; justify-content: flex-end; gap: 4px; }
+  #vn-root.vn-mobile .vn-tools button { flex: 1 1 0; min-width: 30px; max-width: 40px; height: 36px; padding: 0; }
+  #vn-root.vn-mobile .vn-tl { display: none; }
+  #vn-root.vn-mobile .vn-left { width: 100%; }
+}
+#vn-root.vn-mobile .vn-left { min-width: 0; gap: 6px; }
+#vn-root.vn-mobile .vn-chips { gap: 5px; }
+#vn-root.vn-mobile .vn-chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .82rem; }
+#vn-root.vn-mobile[data-size="xs"] .vn-chip-time { display: block; }      /* 시간·날씨도 보여요 (칩이 줄바꿈되므로 자리가 있어요) */
+#vn-root.vn-mobile .vn-aff { max-width: 100%; }
+
+/* 2) 글상자: 화면 폭을 거의 다 쓰고, 글씨는 '글자 크기 %' 설정을 따라가요 (기존 작은 창 모드는 글씨 크기가 .9rem 로 고정이었어요) */
+#vn-root.vn-mobile .vn-box { max-height: 78dvh; padding: 24px 14px 10px; bottom: max(7px, env(safe-area-inset-bottom, 0px)); }
+#vn-root.vn-mobile:not(.lp-on) .vn-box { width: min(1040px, calc(100vw - 14px)); }
+#vn-root.vn-mobile .vn-text { height: var(--vn-th, clamp(120px, 27vh, 300px)); padding-right: 36px; font-size: calc(1rem * var(--vn-fs, 1)); line-height: 1.75; }
+#vn-root.vn-mobile .vn-box.end .vn-text { height: var(--vn-th, clamp(90px, 16vh, 190px)); }
+#vn-root.vn-mobile .vn-name { top: -16px; left: 16px; font-size: .95rem; }
+#vn-root.vn-mobile .vn-collapse { width: 34px; height: 30px; font-size: .9rem; }
+#vn-root.vn-mobile .vn-scrollbtns { top: 42px; right: 6px; }
+#vn-root.vn-mobile .vn-scrollbtns button { width: 32px; height: 32px; }
+#vn-root.vn-mobile .vn-resize { top: -14px; width: 110px; height: 28px; }          /* 손가락으로 잡기 쉽게 */
+#vn-root.vn-mobile .vn-input input { height: 44px; font-size: 16px; }              /* 16px 미만이면 아이폰이 입력할 때 화면을 확대해요 */
+#vn-root.vn-mobile .vn-input button { height: 44px; padding: 0 20px; font-size: 1rem; }
+#vn-root.vn-mobile .vn-choice { min-height: 44px; }
+#vn-root.vn-mobile .vn-pill { height: 40px; }
+
+/* 3) 기록 패널: 폰에서는 화면 전체로 열어요 (예전엔 폭 44%로 좁게 열려 탭 글씨와 본문이 세로로 깨졌어요) */
+#vn-root.vn-mobile .vn-lp-tabs { flex: none; }
+#vn-root.vn-mobile .vn-lp-tabs button { white-space: nowrap; }
+@media (max-width: 700px) {
+  #vn-root.vn-mobile .vn-logpanel { width: 100%; border-left: 0; border-right: 0; background: rgba(var(--panel-rgb), .97); }
+  #vn-root.vn-mobile .vn-lp-resize, #vn-root.vn-mobile .vn-logpanel [data-act="logside"] { display: none; }
+  #vn-root.vn-mobile .vn-logpanel header { gap: 8px; padding: calc(8px + env(safe-area-inset-top, 0px)) 10px 8px; }
+  #vn-root.vn-mobile .vn-logpanel header button { min-width: 40px; height: 40px; }
+  #vn-root.vn-mobile .vn-lp-tabs button { padding: 0 16px; font-size: .94rem; }
+  #vn-root.vn-mobile .vn-lp-body { padding: 14px 16px calc(32px + env(safe-area-inset-bottom, 0px)); font-size: 1.04rem; line-height: 1.85; }
+  #vn-root.vn-mobile.lp-on .vn-box, #vn-root.vn-mobile.lp-on.lp-left .vn-box { width: calc(100vw - 14px); left: 50%; }
+}
+
+/* 4) 메뉴(공략집·설정 등): 폰에서는 전체 화면, 눌러서 쓰기 편한 크기 */
+@media (max-width: 700px) {
+  #vn-root.vn-mobile .vn-modal { padding: 0; }
+  #vn-root.vn-mobile .vn-modal-card { width: 100%; height: 100%; border: 0; border-radius: 0; }
+  #vn-root.vn-mobile .vn-mtabs { padding: calc(6px + env(safe-area-inset-top, 0px)) 6px 0; }
+  #vn-root.vn-mobile .vn-mtabs button { padding: 11px 14px; font-size: .94rem; }
+  #vn-root.vn-mobile .vn-mbody { padding: 12px 14px calc(32px + env(safe-area-inset-bottom, 0px)); font-size: 1rem; }
+  #vn-root.vn-mobile .vn-sprpop { top: calc(112px + env(safe-area-inset-top, 0px)); right: 8px; width: min(300px, calc(100vw - 16px)); max-height: 64dvh; }
+  #vn-root.vn-mobile .vn-status { top: calc(112px + env(safe-area-inset-top, 0px)); max-width: calc(100vw - 16px); }
+}
+#vn-root.vn-mobile .vn-mbody input[type=text], #vn-root.vn-mobile .vn-mbody input[type=number], #vn-root.vn-mobile .vn-mbody input[type=date],
+#vn-root.vn-mobile .vn-mbody select, #vn-root.vn-mobile .vn-mbody textarea { font-size: 16px; }
+#vn-root.vn-mobile .vn-mbody input[type=text], #vn-root.vn-mobile .vn-mbody input[type=number], #vn-root.vn-mobile .vn-mbody input[type=date], #vn-root.vn-mobile .vn-mbody select { min-height: 38px; }
+#vn-root.vn-mobile .vn-btn { min-height: 36px; }
+#vn-root.vn-mobile .vn-btn.sm { min-height: 32px; }
