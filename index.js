@@ -2533,7 +2533,7 @@ IMPORTANT: absolutely no text, letters, numbers, labels, signs with writing, leg
         <div class="vn-opt"><label class="vn-lbl">제외 요소 (이런 건 그리지 않기)</label><input type="text" data-vk="negative" placeholder="예: text, watermark, extra fingers"></div>
         <div class="vn-opt"><label class="vn-lbl">배경 화풍 (비우면 위 화풍 사용)</label><textarea rows="2" data-vk="style"></textarea></div>
         ${`<div class="vn-opt"><label class="vn-lbl">외형 추출 모델 (Gemini, 비워 두면 자동)</label><input type="text" data-vk="lookModel" placeholder="비워 두면 자동: gemini-3-flash-preview → … → 이미지 모델"></div><p class="vn-opt-h">이미지를 보고 외형 태그를 만들 때 쓰는 모델이에요. 모델이 없어지거나 이름이 바뀌어 404가 나면 다른 모델을 차례로 시도하고, 마지막엔 이미지 생성에 쓰는 모델로 대신해요. "외형 태그에 카드 PNG 이미지도 함께 보내기" 설정은 NPC 탭으로 옮겼어요.</p>`}`)}
-      ${sec('저장 공간', `${chk('deleteFiles', '이미지를 지울 때 서버 파일도 함께 지우기', '다른 곳에서 쓰지 않는 VN Studio 이미지(user/images/vnstudio)만 지워요. 이 서버가 삭제를 지원하지 않으면 파일은 그대로 남아요.')}<div class="vn-row tight"><button class="vn-btn sm" data-act="clean-scan">쓰지 않는 표정·NPC 이미지 찾아서 정리</button><button class="vn-btn sm" data-act="img-manage">저장된 이미지 보기·삭제</button></div><div class="vn-row tight"><button class="vn-btn sm" data-act="chat-meta-wipe">이 채팅의 VN Studio 기록 지우기</button></div><p class="vn-opt-h" style="margin-left:0">지금 열린 채팅의 첫 줄에 쌓인 호감도·NPC·일정·캘린더·지도 기록(chat_metadata.vnstudio)만 지워요. 다른 채팅이나 다른 확장의 데이터는 건드리지 않아요. 대사와 장면 생성기 데이터도 그대로예요.</p><p class="vn-opt-h">이미지는 SillyTavern 폴더의 data/(사용자 폴더, 보통 default-user)/user/images/vnstudio 에 저장돼요.</p>`)}
+      ${sec('저장 공간', `${chk('deleteFiles', '이미지를 지울 때 서버 파일도 함께 지우기', '다른 곳에서 쓰지 않는 VN Studio 이미지(user/images/vnstudio)만 지워요. 이 서버가 삭제를 지원하지 않으면 파일은 그대로 남아요.')}<div class="vn-row tight"><button class="vn-btn sm" data-act="clean-scan">쓰지 않는 표정·NPC 이미지 찾아서 정리</button><button class="vn-btn sm" data-act="img-manage">저장된 이미지 보기·삭제</button></div><div class="vn-row tight"><button class="vn-btn sm" data-act="chat-meta-wipe">이 채팅의 VN Studio 기록 지우기</button><button class="vn-btn sm" data-act="chat-strip-blocks">이 채팅 메시지의 [VN] 블록 지우기</button></div><p class="vn-opt-h" style="margin-left:0">지금 열린 채팅의 첫 줄에 쌓인 호감도·NPC·일정·캘린더·지도 기록(chat_metadata.vnstudio)만 지워요. 다른 채팅이나 다른 확장의 데이터는 건드리지 않아요. 대사와 장면 생성기 데이터도 그대로예요.</p><p class="vn-opt-h">이미지는 SillyTavern 폴더의 data/(사용자 폴더, 보통 default-user)/user/images/vnstudio 에 저장돼요.</p>`)}
       <div class="vn-row"><button class="vn-btn" data-act="show-prompt">모델에 보내는 지시문 보기</button><button class="vn-btn danger" data-act="reset-aff">이 채팅 호감도 초기화</button></div>
       <div class="vn-row"><button class="vn-btn wipe-red" data-act="wipe-all">VN Studio 데이터 모두 삭제</button></div><p class="vn-opt-h" style="margin-left:0">설정·API 키·표정·의상·배경 목록과 저장된 이미지, 지금 열린 채팅의 기록을 모두 지워요. 되돌릴 수 없어요.</p>`;
   }
@@ -3461,12 +3461,18 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
       case 'sug-clear': { cd.suggest = {}; saveSettings(); return renderModal(); }
       case 'sug-add': { const n = el.dataset.name; if (!cd.outfits[n]) cd.outfits[n] = { base: '', emo: {} }; delete cd.suggest[n]; saveSettings(); renderModal(); if (imgReady() && confirm(`'${n}' 기준 이미지 1장을 지금 만들까요? (이미지 1회 요금)`)) runGenSet(ch, n, ['neutral']); return; }
       case 'emo-import': return emoImportDialog(ch, ofName);
+      case 'chat-strip-blocks': {
+        if (!confirm('이 채팅의 저장된 메시지에서 [VN] ... [/VN] 블록을 모두 지워요.\n\n호감도·정보 같은 공략집 기록은 그대로지만, 지운 뒤에는 그 메시지로 장면·표정을 다시 재생하거나 기존 채팅 분석을 할 수 없어요. 되돌릴 수 없어요.')) return;
+        const n = await stripVnFromChat(); return toastr[n ? 'success' : 'info'](n ? `메시지 ${n}개에서 [VN] 블록을 지웠어요.` : '지울 [VN] 블록이 없어요.');
+      }
       case 'chat-meta-wipe': {
         if (!confirm('이 채팅에 남은 VN Studio 기록(호감도·NPC·일정·캘린더·지도 기록 등)을 지울까요?\n\n대사와 장면 생성기 데이터는 그대로예요. 되돌릴 수 없어요.')) return;
         const c = ctx(); if (!c.chatMetadata) return toastr.info('열린 채팅이 없어요.');
         delete c.chatMetadata[MODULE]; st.turn = null;
         try { await (c.saveMetadata ? c.saveMetadata() : c.saveMetadataDebounced?.()); toastr.success('이 채팅의 VN Studio 기록을 지웠어요. 이 채팅을 계속 쓰면 빈 기록이 새로 생겨요.'); } catch (e) { toastr.error('저장 실패: ' + (e.message || e)); }
-        ui.hud(null); return renderModal();
+        ui.hud(null);
+        if (confirm('메시지에 남아 있는 [VN] 블록도 같이 지울까요?\n(채팅 화면에 보이는 [VN] 내역이 없어져요. 되돌릴 수 없어요.)')) { const n = await stripVnFromChat(); if (n) toastr.success(`메시지 ${n}개에서 [VN] 블록을 지웠어요.`); }
+        return renderModal();
       }
       case 'emo-toggle': { const e = el.dataset.l, list = enabledEmos(ch), i = list.indexOf(e); if (i >= 0) { if (e === 'neutral') return toastr.info('neutral은 기준 이미지라 빼지 않아요.'); list.splice(i, 1); } else list.push(e); saveSettings(); return renderModal(); }
       case 'emo-cut': {
@@ -4024,6 +4030,23 @@ Rules: "lines" has 3-6 entries ("say" = speech without quotation marks, "narr" =
 
   /* ================= 채팅창의 [VN] 블록 숨기기 ================= */
   const KNOWN_STATUS_TAGS = ['facts', 'fact', 'infobox', 'charinfo', 'memo', 'tracker', 'status', 'statusblock', 'status_block', 'statuswindow', 'status_window', '상태창', 'hud'];
+  /* 저장된 채팅 메시지(스와이프 포함)에서 [VN] 블록을 실제로 지운다 */
+  async function stripVnFromChat() {
+    const c = ctx(); if (!Array.isArray(c.chat)) return 0;
+    const clean = (s) => String(s).replace(RE_BLOCK_ALL, '').replace(/\s+$/, '');
+    let n = 0;
+    for (const m of c.chat) {
+      if (!m) continue;
+      let hit = false;
+      if (typeof m.mes === 'string' && /\[VN\]/i.test(m.mes)) { m.mes = clean(m.mes); hit = true; }
+      if (Array.isArray(m.swipes)) m.swipes = m.swipes.map((x) => { if (typeof x === 'string' && /\[VN\]/i.test(x)) { hit = true; return clean(x); } return x; });
+      if (hit) n++;
+    }
+    if (!n) return 0;
+    try { await (c.saveChat ? c.saveChat() : c.saveChatConditional?.()); } catch (e) { toastr.error('채팅 저장 실패: ' + (e.message || e)); return 0; }
+    try { await c.reloadCurrentChat?.(); } catch (e) { console.warn('[VN] 채팅 새로고침 실패', e); }
+    return n;
+  }
   function stripTags() {
     const names = S().hideInChat ? [...new Set([...String(S().hideTags || '').split(',').map((x) => x.trim()).filter(Boolean), ...KNOWN_STATUS_TAGS])].map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) : [];
     document.querySelectorAll('#chat .mes_text').forEach((el) => {
